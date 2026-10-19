@@ -1,0 +1,1 @@
+# SpeakReady AI Backend Application
