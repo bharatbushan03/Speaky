@@ -24,21 +24,23 @@ SpeakReady AI helps users improve their English communication skills through:
 ### Backend
 - **Framework**: FastAPI (Python)
 - **Database**: Supabase PostgreSQL
-- **Authentication**: JWT tokens with bcrypt
-- **AI Integration**: Configurable (OpenAI, Giani AI, etc.)
-- **Speech-to-Text**: Configurable (OpenAI Whisper, Google, Azure)
+- **Authentication**: Supabase Auth bearer tokens
+- **Session authorization**: user-scoped PostgREST requests plus PostgreSQL RLS
+- **AI Integration**: provider interfaces only in this stage; generation/evaluation are not implemented
+- **Speech-to-Text**: browser transcription remains separate from persisted voice transcripts
 
 ### Database
 - **Provider**: Supabase PostgreSQL
 - **Features**: Row Level Security (RLS), triggers, indexes
-- **Tables**: users, practice_sessions, user_progress, feedback_items
+- **Legacy tables**: users, practice_sessions, user_progress, feedback_items
+- **Session tables**: sessions, session_questions, session_responses
 
 ## 🚀 Getting Started
 
 ### Prerequisites
 
-- **Node.js**: 18.x or higher
-- **Python**: 3.9 or higher
+- **Node.js**: 20.11.1 (see `.nvmrc`)
+- **Python**: 3.11.9 (see `.python-version`)
 - **npm** or **yarn**: Latest version
 - **Supabase Account**: [Sign up here](https://supabase.com)
 - **AI Provider Account**: OpenAI or Giani AI (optional for testing)
@@ -116,7 +118,8 @@ Edit `.env` and add your credentials:
 ```env
 # Database (Supabase)
 SUPABASE_URL=your_supabase_project_url
-SUPABASE_KEY=your_supabase_service_role_key
+SUPABASE_KEY=your_supabase_service_role_key # backend-only legacy/admin operations
+SUPABASE_ANON_KEY=your_supabase_anon_key     # Auth validation and user-scoped API calls
 DATABASE_URL=your_postgres_connection_string
 
 # AI Provider (choose one)
@@ -126,6 +129,8 @@ OPENAI_MODEL=gpt-3.5-turbo
 
 # Security
 SECRET_KEY=generate_a_secure_random_key_min_32_chars
+LOG_LEVEL=INFO
+ALLOWED_ORIGINS=http://localhost:3000,http://localhost:3001
 ```
 
 **Note**: To generate a secure secret key, run:
@@ -153,12 +158,19 @@ API documentation: [http://localhost:8000/docs](http://localhost:8000/docs)
 
 #### Run Database Migrations
 
-1. Go to your Supabase project dashboard
-2. Navigate to **SQL Editor**
-3. Copy the contents of `backend/app/db/schema.sql`
-4. Paste and execute in the SQL Editor
+1. Configure `DATABASE_URL` outside the repository (secret manager or shell).
+2. Install the PostgreSQL `psql` client in the documented environment.
+3. Apply `backend/app/db/migrations/001_initial_schema.sql`, then
+   `backend/app/db/migrations/002_session_management.sql` with
+   `-v ON_ERROR_STOP=1`.
+4. Confirm the Auth users and RLS/RPC checks described in
+   `backend/app/db/README.md`.
 
-Detailed instructions: See `backend/app/db/README.md`
+The migrations have been applied to the configured Supabase database using a
+disposable Docker PostgreSQL client with host networking. The local workspace
+does not have a native `psql` executable; the Docker alternative is documented
+in `backend/app/db/README.md`. Never put a service-role key in frontend
+variables or browser code.
 
 ## 📁 Project Structure
 
@@ -235,12 +247,27 @@ npm run type-check
 ### Backend
 
 ```bash
-# Run tests (when implemented)
-pytest
+# Run offline API/session tests from backend/
+python -m unittest discover -s tests -v
 
 # Check code formatting
 black --check .
 ```
+
+From the repository root, `make test` runs the backend tests and frontend
+type-check. The root `Dockerfile` builds the FastAPI image; run the Next.js
+frontend separately with the pinned Node version in `.nvmrc`.
+
+### Backend container
+
+```bash
+docker build -t speakready-ai-backend .
+docker run --rm -p 8000:8000 --env-file backend/.env speakready-ai-backend
+```
+
+Provide `backend/.env` through a secret manager or local ignored file; never
+build service-role credentials into an image or pass them as `NEXT_PUBLIC_*`
+variables.
 
 ## 📚 API Documentation
 
@@ -264,11 +291,21 @@ GET /api/v1/users/{user_id}  # Get user
 
 #### Practice Sessions
 ```
-POST /api/v1/sessions/                    # Create session
-GET /api/v1/sessions/{session_id}         # Get session
-GET /api/v1/sessions/user/{user_id}       # Get user sessions
-GET /api/v1/sessions/user/{user_id}/progress  # Get progress
+POST /api/v1/sessions/                     # Create owned session
+GET /api/v1/sessions/                      # List the authenticated user's sessions
+GET /api/v1/sessions/{session_id}           # Get owned session and details
+PATCH /api/v1/sessions/{session_id}         # Update state/navigation while allowed
+PUT /api/v1/sessions/{session_id}/questions # Save the static question set
+POST /api/v1/sessions/{session_id}/responses # Save text/voice transcript answer
+POST /api/v1/sessions/{session_id}/complete # Complete after every answer is saved
 ```
+
+Session routes require a Supabase Auth `Authorization: Bearer <access-token>`
+header. The server derives ownership from the token; there is no `user_id`
+query parameter for these routes. Session mutations are checked again by the
+`manage_practice_session` PostgreSQL function, and RLS protects direct reads.
+Question generation and evaluation have separate interfaces but are deliberately
+not called by this stage.
 
 #### AI Feedback
 ```
@@ -281,7 +318,8 @@ POST /api/v1/feedback/transcribe   # Transcribe audio
 - **API Keys**: Never commit API keys to version control
 - **Environment Files**: `.env` files are git-ignored
 - **Password Hashing**: bcrypt with salt
-- **JWT Tokens**: HS256 algorithm
+- **Auth tokens**: Supabase Auth bearer tokens are validated server-side
+- **Service-role credentials**: backend-only; never expose them to the browser
 - **RLS Policies**: Row Level Security in Supabase
 - **CORS**: Configured for frontend origins only
 
@@ -339,7 +377,8 @@ npm install
 **Database connection failed:**
 - Check Supabase credentials in `.env`
 - Verify Supabase project is active
-- Ensure service role key (not anon key) is used
+- Ensure `SUPABASE_ANON_KEY` is configured for Auth and user-scoped session requests
+- Keep `SUPABASE_KEY` service-role credentials backend-only
 
 **AI provider errors:**
 - Verify API key is correct
@@ -349,7 +388,7 @@ npm install
 ### Database Issues
 
 **Tables not created:**
-- Run the schema.sql file in Supabase SQL Editor
+- Apply numbered migrations `001_initial_schema.sql` then `002_session_management.sql`
 - Check for SQL errors in the editor
 - Verify migrations were applied in order
 

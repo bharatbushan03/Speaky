@@ -1,51 +1,61 @@
-from pydantic_settings import BaseSettings
 from typing import List
-import os
+
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     # Application Settings
     APP_NAME: str = "SpeakReady AI"
     APP_VERSION: str = "0.1.0"
-    DEBUG: bool = True
+    DEBUG: bool = False
+    LOG_LEVEL: str = "INFO"
     
     # API Settings
     API_V1_PREFIX: str = "/api/v1"
     
     # CORS Settings
-    ALLOWED_ORIGINS: List[str] = [
-        "http://localhost:3000",
-        "http://localhost:3001",
-    ]
+    # A comma-separated value keeps .env and container configuration simple.
+    ALLOWED_ORIGINS: str = "http://localhost:3000,http://localhost:3001"
     
     # Database Settings (Supabase PostgreSQL)
-    DATABASE_URL: str = os.getenv("DATABASE_URL", "")
-    SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
-    SUPABASE_KEY: str = os.getenv("SUPABASE_KEY", "")
+    DATABASE_URL: str = ""
+    SUPABASE_URL: str = ""
+    # Service-role key is backend-only and is retained only for legacy routes.
+    SUPABASE_KEY: str = ""
+    # The anon key is safe to use with a user's bearer token for PostgREST/Auth.
+    SUPABASE_ANON_KEY: str = ""
     
     # AI Provider Settings (Configurable - can switch between providers)
-    AI_PROVIDER: str = os.getenv("AI_PROVIDER", "openai")  # openai, giani, anthropic, etc.
+    AI_PROVIDER: str = "openai"  # openai, giani, anthropic, etc.
     
     # OpenAI Settings
-    OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
-    OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-3.5-turbo")
+    OPENAI_API_KEY: str = ""
+    OPENAI_MODEL: str = "gpt-3.5-turbo"
     
     # Giani AI Settings (to be configured once API is verified)
-    GIANI_API_KEY: str = os.getenv("GIANI_API_KEY", "")
-    GIANI_API_URL: str = os.getenv("GIANI_API_URL", "")
-    GIANI_MODEL: str = os.getenv("GIANI_MODEL", "")
+    GIANI_API_KEY: str = ""
+    GIANI_API_URL: str = ""
+    GIANI_MODEL: str = ""
     
     # Speech-to-Text Settings
-    STT_PROVIDER: str = os.getenv("STT_PROVIDER", "openai")  # openai, google, azure
+    STT_PROVIDER: str = "openai"  # openai, google, azure
     
     # Security Settings
-    SECRET_KEY: str = os.getenv("SECRET_KEY", "change-this-in-production")
+    SECRET_KEY: str = Field(default="change-this-in-production", repr=False)
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
-    
-    class Config:
-        env_file = ".env"
-        case_sensitive = True
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=True,
+        extra="ignore",
+    )
+
+    @property
+    def allowed_origins(self) -> List[str]:
+        return [origin.strip() for origin in self.ALLOWED_ORIGINS.split(",") if origin.strip()]
 
 
 settings = Settings()

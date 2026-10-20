@@ -1,5 +1,7 @@
 from fastapi import APIRouter, status
 
+from app.core.config import settings
+
 router = APIRouter()
 
 
@@ -16,8 +18,9 @@ async def health_check():
 @router.get("/ready", status_code=status.HTTP_200_OK)
 async def readiness_check():
     """Readiness check endpoint."""
+    database_configured = bool(settings.SUPABASE_URL and settings.SUPABASE_ANON_KEY)
     return {
-        "status": "ready",
-        "database": "connected",
-        "ai_service": "configured"
+        "status": "ready" if database_configured else "degraded",
+        "database": "configured" if database_configured else "not_configured",
+        "ai_service": "not_configured",
     }

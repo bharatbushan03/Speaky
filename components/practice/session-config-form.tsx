@@ -30,10 +30,12 @@ import { cn } from "@/lib/utils";
 
 interface SessionConfigFormProps {
   mode: PracticeMode;
-  onStartSession: (config: PracticeSessionConfig) => void;
+  onStartSession: (config: PracticeSessionConfig) => Promise<void>;
+  isStarting?: boolean;
+  startError?: string | null;
 }
 
-export function SessionConfigForm({ mode, onStartSession }: SessionConfigFormProps) {
+export function SessionConfigForm({ mode, onStartSession, isStarting = false, startError }: SessionConfigFormProps) {
   const modeConfig = PRACTICE_MODE_CONFIG[mode];
   
   const [config, setConfig] = useState<Partial<PracticeSessionConfig>>({
@@ -89,13 +91,13 @@ export function SessionConfigForm({ mode, onStartSession }: SessionConfigFormPro
     return newErrors.length === 0;
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isStarting || isValidating || !validateConfig()) return;
     setIsValidating(true);
-
-    if (validateConfig()) {
-      onStartSession(config as PracticeSessionConfig);
-    } else {
+    try {
+      await onStartSession(config as PracticeSessionConfig);
+    } finally {
       setIsValidating(false);
     }
   };
@@ -106,6 +108,11 @@ export function SessionConfigForm({ mode, onStartSession }: SessionConfigFormPro
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
+      <p className="text-sm text-muted-foreground">
+        Questions come from a static practice bank, not AI generation. Questions may repeat in longer sessions.
+      </p>
+      {startError && <p role="alert" className="text-sm text-destructive">{startError}</p>}
+      <fieldset disabled={isStarting || isValidating} className="space-y-6">
       {/* Job Role or Subject */}
       {(mode === "hr" || mode === "technical") && (
         <Card>
@@ -122,6 +129,7 @@ export function SessionConfigForm({ mode, onStartSession }: SessionConfigFormPro
               </Label>
               <Input
                 id="jobRole"
+                maxLength={255}
                 placeholder="e.g., Software Engineer, Data Analyst, Product Manager"
                 value={config.jobRole || ""}
                 onChange={(e) => updateConfig("jobRole", e.target.value)}
@@ -136,7 +144,7 @@ export function SessionConfigForm({ mode, onStartSession }: SessionConfigFormPro
                 </div>
               )}
               <p className="text-xs text-muted-foreground">
-                We&apos;ll tailor questions to this specific role
+                Your role is saved with the session and used in question templates where supported
               </p>
             </div>
           </CardContent>
@@ -158,6 +166,7 @@ export function SessionConfigForm({ mode, onStartSession }: SessionConfigFormPro
               </Label>
               <Input
                 id="subject"
+                maxLength={255}
                 placeholder="e.g., Computer Science, Physics, Literature"
                 value={config.subject || ""}
                 onChange={(e) => updateConfig("subject", e.target.value)}
@@ -364,7 +373,7 @@ export function SessionConfigForm({ mode, onStartSession }: SessionConfigFormPro
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground">
-              AI feedback and explanations will be provided in this language
+              Saves your language preference and sets the voice transcription language. AI feedback is not available in this flow.
             </p>
           </div>
 
@@ -375,6 +384,7 @@ export function SessionConfigForm({ mode, onStartSession }: SessionConfigFormPro
             </Label>
             <Input
               id="topicFocus"
+              maxLength={500}
               placeholder="e.g., Conflict resolution, Algorithms, Research ethics"
               value={config.topicFocus || ""}
               onChange={(e) => updateConfig("topicFocus", e.target.value)}
@@ -398,13 +408,14 @@ export function SessionConfigForm({ mode, onStartSession }: SessionConfigFormPro
         <Button
           type="submit"
           size="lg"
-          disabled={isValidating}
+          disabled={isValidating || isStarting}
           className="gap-2"
         >
           <Sparkles className="h-5 w-5" />
-          Start Practice Session
+          {isStarting ? "Creating Session..." : "Start Practice Session"}
         </Button>
       </div>
+      </fieldset>
     </form>
   );
 }

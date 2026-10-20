@@ -27,6 +27,7 @@ interface SessionControlsProps {
   currentQuestionIndex: number;
   totalQuestions: number;
   answeredQuestions: number;
+  answeredQuestionIndexes?: number[];
   onPrevious: () => void;
   onNext: () => void;
   onPause?: () => void;
@@ -37,12 +38,14 @@ interface SessionControlsProps {
   canGoNext: boolean;
   canGoPrevious: boolean;
   isLastQuestion: boolean;
+  disabled?: boolean;
 }
 
 export function SessionControls({
   currentQuestionIndex,
   totalQuestions,
   answeredQuestions,
+  answeredQuestionIndexes,
   onPrevious,
   onNext,
   onPause,
@@ -53,6 +56,7 @@ export function SessionControls({
   canGoNext,
   canGoPrevious,
   isLastQuestion,
+  disabled = false,
 }: SessionControlsProps) {
   const progress = (answeredQuestions / totalQuestions) * 100;
   const currentNumber = currentQuestionIndex + 1;
@@ -76,7 +80,7 @@ export function SessionControls({
           variant="outline"
           size="lg"
           onClick={onPrevious}
-          disabled={!canGoPrevious || isPaused}
+          disabled={!canGoPrevious || isPaused || disabled}
           className="gap-2 flex-1"
         >
           <ChevronLeft className="h-4 w-4" />
@@ -94,7 +98,7 @@ export function SessionControls({
             variant="outline"
             size="lg"
             onClick={onNext}
-            disabled={!canGoNext || isPaused}
+            disabled={!canGoNext || isPaused || disabled}
             className="gap-2 flex-1"
           >
             Next
@@ -106,7 +110,7 @@ export function SessionControls({
               <Button
                 variant="default"
                 size="lg"
-                disabled={answeredQuestions < totalQuestions || isPaused}
+                disabled={answeredQuestions < totalQuestions || isPaused || disabled}
                 className="gap-2 flex-1 bg-green-600 hover:bg-green-700"
               >
                 <CheckCircle2 className="h-4 w-4" />
@@ -117,12 +121,12 @@ export function SessionControls({
               <AlertDialogHeader>
                 <AlertDialogTitle>Complete Practice Session?</AlertDialogTitle>
                 <AlertDialogDescription>
-                  You have answered all {totalQuestions} questions. Are you ready to finish this session and view your performance summary?
+                  All {totalQuestions} answers are saved. Complete this session to make it read-only. AI scoring and feedback are not available in this flow.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
                 <AlertDialogCancel>Review Answers</AlertDialogCancel>
-                <AlertDialogAction onClick={onComplete} className="bg-green-600 hover:bg-green-700">
+                <AlertDialogAction onClick={onComplete} disabled={disabled} className="bg-green-600 hover:bg-green-700">
                   Complete Session
                 </AlertDialogAction>
               </AlertDialogFooter>
@@ -139,6 +143,7 @@ export function SessionControls({
             variant="ghost"
             size="sm"
             onClick={isPaused ? onResume : onPause}
+            disabled={disabled}
             className="gap-2"
           >
             {isPaused ? (
@@ -158,22 +163,22 @@ export function SessionControls({
         {/* Exit Session */}
         <AlertDialog>
           <AlertDialogTrigger asChild>
-            <Button variant="ghost" size="sm" className="gap-2 ml-auto text-destructive hover:text-destructive">
+            <Button variant="ghost" size="sm" disabled={disabled} className="gap-2 ml-auto text-destructive hover:text-destructive">
               <X className="h-4 w-4" />
-              Exit Session
+              Cancel Session
             </Button>
           </AlertDialogTrigger>
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>Exit Practice Session?</AlertDialogTitle>
+              <AlertDialogTitle>Cancel Practice Session?</AlertDialogTitle>
               <AlertDialogDescription>
-                Your progress will be saved, but you won&apos;t receive feedback until you complete all questions. You can resume this session later from the dashboard.
+                Saved answers will remain available for review. Unsaved edits will be discarded, and this session cannot be resumed. Use Back instead to leave and resume later using this page URL.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel>Continue Practicing</AlertDialogCancel>
-              <AlertDialogAction onClick={onExit} className="bg-destructive hover:bg-destructive/90">
-                Exit Session
+              <AlertDialogAction onClick={onExit} disabled={disabled} className="bg-destructive hover:bg-destructive/90">
+                Cancel Session
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
@@ -183,7 +188,7 @@ export function SessionControls({
       {/* Answer Status Indicators */}
       <div className="flex flex-wrap gap-2 pt-2">
         {Array.from({ length: totalQuestions }).map((_, index) => {
-          const isAnswered = index < answeredQuestions;
+          const isAnswered = answeredQuestionIndexes ? answeredQuestionIndexes.includes(index) : index < answeredQuestions;
           const isCurrent = index === currentQuestionIndex;
 
           return (

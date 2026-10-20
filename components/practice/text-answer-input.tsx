@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 
 interface TextAnswerInputProps {
   initialValue?: string;
-  onSubmit: (answer: string) => void;
+  onSubmit: (answer: string) => Promise<boolean>;
   isSubmitted: boolean;
   onEdit?: () => void;
   disabled?: boolean;
@@ -25,16 +25,23 @@ export function TextAnswerInput({
 }: TextAnswerInputProps) {
   const [answer, setAnswer] = useState(initialValue);
   const [isEditing, setIsEditing] = useState(!isSubmitted);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const submittingRef = useRef(false);
 
   useEffect(() => {
     setAnswer(initialValue);
     setIsEditing(!isSubmitted);
   }, [initialValue, isSubmitted]);
 
-  const handleSubmit = () => {
-    if (answer.trim().length > 0) {
-      onSubmit(answer.trim());
-      setIsEditing(false);
+  const handleSubmit = async () => {
+    if (disabled || submittingRef.current || !answer.trim() || answer.length > MAX_CHARS) return;
+    submittingRef.current = true;
+    setIsSubmitting(true);
+    try {
+      if (await onSubmit(answer.trim())) setIsEditing(false);
+    } finally {
+      submittingRef.current = false;
+      setIsSubmitting(false);
     }
   };
 
@@ -60,7 +67,7 @@ export function TextAnswerInput({
               variant="outline"
               size="sm"
               onClick={handleEdit}
-              disabled={disabled}
+              disabled={disabled || isSubmitting}
               className="gap-2"
             >
               <Edit2 className="h-4 w-4" />
@@ -81,7 +88,7 @@ export function TextAnswerInput({
               !isEditing && "bg-muted/50 cursor-default",
               isOverLimit && "border-destructive focus-visible:ring-destructive"
             )}
-            disabled={!isEditing || disabled}
+            disabled={!isEditing || disabled || isSubmitting}
             maxLength={MAX_CHARS}
           />
         </div>
@@ -114,11 +121,11 @@ export function TextAnswerInput({
           <div className="flex items-center gap-3">
             <Button
               onClick={handleSubmit}
-              disabled={answer.trim().length === 0 || isOverLimit || disabled}
+              disabled={answer.trim().length === 0 || isOverLimit || disabled || isSubmitting}
               className="gap-2"
               size="lg"
             >
-              {isSubmitted ? (
+              {isSubmitting ? "Saving..." : isSubmitted ? (
                 <>
                   <Check className="h-4 w-4" />
                   Update Answer

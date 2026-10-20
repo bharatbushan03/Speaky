@@ -11,11 +11,13 @@ import { RecordingState, SpeechRecognitionError } from "@/lib/types/session";
 
 interface VoiceAnswerInputProps {
   initialValue?: string;
-  onSubmit: (answer: string, transcriptEdited: boolean) => void;
+  onSubmit: (answer: string, transcriptEdited: boolean) => Promise<boolean>;
   isSubmitted: boolean;
   onEdit?: () => void;
   disabled?: boolean;
   language?: string;
+  initialTranscriptEdited?: boolean;
+  onRecordingChange?: (busy: boolean) => void;
 }
 
 const MAX_CHARS = 2000;
@@ -28,32 +30,49 @@ export function VoiceAnswerInput({
   onEdit,
   disabled = false,
   language = "english",
+  initialTranscriptEdited = false,
+  onRecordingChange,
 }: VoiceAnswerInputProps) {
   const [recordingState, setRecordingState] = useState<RecordingState>("idle");
   const [transcript, setTranscript] = useState(initialValue);
   const [interimTranscript, setInterimTranscript] = useState("");
   const [error, setError] = useState<SpeechRecognitionError | null>(null);
-  const [isEditing, setIsEditing] = useState(false);
-  const [transcriptEdited, setTranscriptEdited] = useState(false);
+  const [isEditing, setIsEditing] = useState(!isSubmitted);
+  const [transcriptEdited, setTranscriptEdited] = useState(initialTranscriptEdited);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const recognitionServiceRef = useRef<SpeechRecognitionService | null>(null);
+  const mountedRef = useRef(false);
+  const submittingRef = useRef(false);
+  const requestingRef = useRef(false);
+  const processingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     setTranscript(initialValue);
-    setIsEditing(false);
-    setTranscriptEdited(false);
-  }, [initialValue, isSubmitted]);
+    setIsEditing(!isSubmitted);
+    setTranscriptEdited(initialTranscriptEdited);
+  }, [initialValue, isSubmitted, initialTranscriptEdited]);
 
   useEffect(() => {
-    // Cleanup on unmount
+    onRecordingChange?.(["recording", "requesting_permission", "processing"].includes(recordingState));
+  }, [recordingState, onRecordingChange]);
+
+  useEffect(() => {
+    mountedRef.current = true;
     return () => {
-      if (recognitionServiceRef.current) {
+      mountedRef.current = false;
+      if (processingTimer.current) clearTimeout(processingTimer.current);
+      if (recognitionServiceRef.current && !requestingRef.current) {
         recognitionServiceRef.current.cleanup();
       }
+      // A pending microphone request is cleaned up as soon as it resolves.
+      recognitionServiceRef.current = null;
+      onRecordingChange?.(false);
     };
-  }, []);
+  }, [onRecordingChange]);
 
   const handleStartRecording = async () => {
+    if (disabled || submittingRef.current || requestingRef.current || recordingState !== "idle") return;
     // Check if speech recognition is supported
     if (!SpeechRecognitionService.isSupported()) {
       setError({
@@ -67,18 +86,21 @@ export function VoiceAnswerInput({
     setRecordingState("requesting_permission");
     setError(null);
     setInterimTranscript("");
+    requestingRef.current = true;
+    let service: SpeechRecognitionService | null = null;
 
     try {
       // Initialize service
-      const service = new SpeechRecognitionService();
+      recognitionServiceRef.current?.cleanup();
+      service = new SpeechRecognitionService();
       const langCode = SpeechRecognitionService.getLanguageCode(language);
       service.initialize(langCode);
       recognitionServiceRef.current = service;
 
       // Start listening
-      setRecordingState("recording");
       await service.startListening(
         (text: string, isFinal: boolean) => {
+          if (!mountedRef.current || recognitionServiceRef.current !== service) return;
           if (isFinal) {
             setTranscript((prev) => {
               const newText = prev ? `${prev} ${text}` : text;
@@ -90,6 +112,7 @@ export function VoiceAnswerInput({
           }
         },
         (err: SpeechRecognitionError) => {
+          if (!mountedRef.current || recognitionServiceRef.current !== service) return;
           setError(err);
           setRecordingState("error");
           if (err.type === "permission_denied") {
@@ -97,13 +120,18 @@ export function VoiceAnswerInput({
           }
         }
       );
+      if (mountedRef.current && recognitionServiceRef.current === service) setRecordingState("recording");
     } catch (err: any) {
+      if (!mountedRef.current) return;
       const mappedError: SpeechRecognitionError = {
         type: err.type || "unknown",
         message: err.message || "Failed to start recording. Please try again.",
       };
       setError(mappedError);
       setRecordingState("error");
+    } finally {
+      requestingRef.current = false;
+      if (!mountedRef.current || recognitionServiceRef.current !== service) service?.cleanup();
     }
   };
 
@@ -113,7 +141,8 @@ export function VoiceAnswerInput({
       setRecordingState("processing");
       
       // Show final transcript after brief processing delay
-      setTimeout(() => {
+      processingTimer.current = setTimeout(() => {
+        if (!mountedRef.current) return;
         setRecordingState("idle");
         setInterimTranscript("");
       }, 500);
@@ -130,10 +159,16 @@ export function VoiceAnswerInput({
     setTranscriptEdited(true);
   };
 
-  const handleSubmit = () => {
-    if (transcript.trim().length > 0) {
-      onSubmit(transcript.trim(), transcriptEdited);
-      setIsEditing(false);
+  const handleSubmit = async () => {
+    if (disabled || submittingRef.current || !transcript.trim() || transcript.length > MAX_CHARS ||
+        ["recording", "requesting_permission", "processing"].includes(recordingState)) return;
+    submittingRef.current = true;
+    setIsSubmitting(true);
+    try {
+      if (await onSubmit(transcript.trim(), transcriptEdited)) setIsEditing(false);
+    } finally {
+      submittingRef.current = false;
+      setIsSubmitting(false);
     }
   };
 
@@ -150,11 +185,13 @@ export function VoiceAnswerInput({
   const charCount = transcript.length;
   const isLongEnough = charCount >= RECOMMENDED_MIN_CHARS;
   const isOverLimit = charCount > MAX_CHARS;
-  const displayText = isEditing ? transcript : transcript || interimTranscript;
+  const displayText = recordingState === "recording"
+    ? [transcript, interimTranscript].filter(Boolean).join(" ")
+    : transcript;
 
   // Recording button states
   const isRecording = recordingState === "recording";
-  const canRecord = recordingState === "idle" && !isSubmitted && !disabled;
+  const canRecord = recordingState === "idle" && (!isSubmitted || isEditing) && !disabled && !isSubmitting;
   const isRequestingPermission = recordingState === "requesting_permission";
   const isProcessing = recordingState === "processing";
   const showRecordingControls = !isSubmitted || isEditing;
@@ -172,7 +209,7 @@ export function VoiceAnswerInput({
               variant="outline"
               size="sm"
               onClick={handleEditAnswer}
-              disabled={disabled}
+              disabled={disabled || isSubmitting}
               className="gap-2"
             >
               <Edit2 className="h-4 w-4" />
@@ -230,7 +267,7 @@ export function VoiceAnswerInput({
                 size="lg"
                 onClick={handleEditTranscript}
                 className="gap-2"
-                disabled={disabled}
+                disabled={disabled || isSubmitting || isRequestingPermission || isProcessing}
               >
                 <Edit2 className="h-4 w-4" />
                 Edit Transcript
@@ -275,6 +312,7 @@ export function VoiceAnswerInput({
               variant="outline"
               size="sm"
               onClick={handleRetry}
+              disabled={disabled || isSubmitting}
               className="mt-3"
             >
               Try Again
@@ -298,7 +336,7 @@ export function VoiceAnswerInput({
               isOverLimit && "border-destructive focus-visible:ring-destructive",
               interimTranscript && !transcript && "text-muted-foreground italic"
             )}
-            disabled={(!isEditing && !isRecording) || disabled}
+            disabled={!isEditing || isRecording || isRequestingPermission || isProcessing || disabled || isSubmitting}
             maxLength={MAX_CHARS}
           />
           {isRecording && interimTranscript && (
@@ -345,11 +383,11 @@ export function VoiceAnswerInput({
           <div className="flex items-center gap-3">
             <Button
               onClick={handleSubmit}
-              disabled={transcript.trim().length === 0 || isOverLimit || disabled}
+              disabled={transcript.trim().length === 0 || isOverLimit || disabled || isSubmitting || isRecording || isRequestingPermission || isProcessing}
               className="gap-2"
               size="lg"
             >
-              {isSubmitted ? (
+              {isSubmitting ? "Saving..." : isSubmitted ? (
                 <>
                   <Check className="h-4 w-4" />
                   Update Answer
