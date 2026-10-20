@@ -1,8 +1,10 @@
+import logging
 from typing import List
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, status
 
+from app.core.errors import APIError
 from app.core.security import AuthenticatedUser, get_current_user
 from app.db.database import get_user_database
 from app.models.schemas import (
@@ -14,6 +16,10 @@ from app.models.schemas import (
     SessionConfigWithDetails,
 )
 from app.services.session_service import SessionService
+from app.services.ai_interfaces import QuestionGenerator
+from app.services.question_generation import get_question_generator
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -76,6 +82,51 @@ async def set_questions(
 ):
     """Set exactly question_count static questions while the session is created."""
     return await service.set_questions(session_id, questions)
+
+
+@router.post(
+    "/{session_id}/questions/generate",
+    response_model=SessionConfigWithDetails,
+)
+async def generate_question(
+    session_id: UUID,
+    service: SessionService = Depends(get_session_service),
+    generator: QuestionGenerator = Depends(get_question_generator),
+):
+    """Generate and persist the next question for an owned session.
+
+    The stored session is the source of truth for role/subject, difficulty,
+    prior questions, and prior answers. A complete set is returned unchanged,
+    making browser retries safe and avoiding another provider call.
+    """
+    session = await service.get_session(session_id)
+    if session.status in {"completed", "cancelled"}:
+        raise APIError(409, "invalid_transition", "Questions cannot be generated for a terminal session")
+    if len(session.questions) >= session.question_count:
+        return session
+
+    try:
+        question = await generator.generate_question(session)
+    except APIError:
+        raise
+    except Exception as exc:
+        logger.exception("Question provider failed without a stable APIError")
+        raise APIError(503, "provider_unavailable", "The AI provider is unavailable") from exc
+
+    return await service.persist_generated_question(
+        session_id,
+        len(session.questions),
+        question,
+    )
+
+
+@router.post("/{session_id}/start", response_model=SessionConfigWithDetails)
+async def start_session(
+    session_id: UUID,
+    service: SessionService = Depends(get_session_service),
+):
+    """Enter in-progress state after at least the first question is ready."""
+    return await service.start_session(session_id)
 
 
 @router.post("/{session_id}/responses", response_model=SessionConfigWithDetails)

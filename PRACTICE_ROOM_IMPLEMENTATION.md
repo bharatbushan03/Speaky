@@ -55,7 +55,7 @@ Successfully implemented the interactive Practice Room for SpeakReady AI, includ
 ### 4. Main Practice Room Page (`app/practice/room/page.tsx`)
 **Features:**
 - ✅ Session state initialization and restoration from sessionStorage
-- ✅ Question generation using QuestionGenerator service
+- ✅ One-question-at-a-time generation through the authenticated FastAPI API
 - ✅ Session configuration loading from sessionStorage
 - ✅ Answer submission and update handling
 - ✅ Preserves answers during navigation
@@ -86,7 +86,7 @@ Successfully implemented the interactive Practice Room for SpeakReady AI, includ
 1. Load config from sessionStorage (practiceSessionConfig)
 2. Check for existing session state (practiceSessionState)
 3. If exists: restore state with date deserialization
-4. If not: generate questions using QuestionGenerator
+4. If not: request the next question from the backend provider API
 5. Initialize SessionState with empty answers array
 6. Save initial state to sessionStorage
 ```
@@ -272,14 +272,14 @@ npm run build
 ## Known Limitations & Future Work
 
 ### Current Implementation
-- ✅ Mock questions only (no AI generation)
+- ✅ Backend generation with explicit mock or configured OpenAI adapter; Giani is fail-closed until its official API is verified
 - ✅ Browser-based speech recognition (no hosted STT)
 - ✅ No AI feedback or evaluation
 - ✅ No session summary/results page
 - ✅ No session history or resume from dashboard
 - ✅ No audio recording storage
-- ✅ No multilingual question generation
-- ✅ No progress saving to backend
+- ✅ Session language is passed to the provider prompt; answer evaluation is not implemented
+- ✅ Questions, navigation, and submitted answers are saved to the backend
 
 ### Next Steps (Not Implemented Yet)
 1. **Session Summary Page**: Display answers, AI feedback, pronunciation analysis
@@ -321,7 +321,7 @@ npm run build
 ## Architecture Notes
 
 ### Separation of Concerns
-- **Services**: Business logic (SpeechRecognitionService, QuestionGenerator)
+- **Services**: Browser speech recognition; question generation is backend-owned
 - **Components**: UI presentation (QuestionDisplay, TextAnswerInput, VoiceAnswerInput)
 - **Pages**: State management and orchestration (PracticeRoomPage)
 - **Types**: Shared type definitions (SessionState, Answer, Question)
@@ -334,14 +334,14 @@ npm run build
 
 ### Reusability
 - SpeechRecognitionService can be replaced with hosted STT
-- QuestionGenerator can be replaced with AI API
+- Backend provider adapters can be swapped without exposing keys to the browser
 - Components work independently
 - Types shared across all layers
 
 ## Contact & Support
 For questions about this implementation, refer to:
 - Type definitions: `lib/types/session.ts`, `lib/types/practice.ts`
-- Services: `lib/services/speech-recognition.ts`, `lib/services/question-generator.ts`
+- Services: `lib/services/speech-recognition.ts`; generation is provided by `backend/app/services/question_generation.py`
 - Components: `components/practice/*`
 - Main page: `app/practice/room/page.tsx`
 

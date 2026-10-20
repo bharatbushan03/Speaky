@@ -46,13 +46,3 @@ export interface RecordingSession {
   error: SpeechRecognitionError | null;
   isEditing: boolean;
 }
-
-// Mock question generators based on mode and difficulty
-export interface QuestionGeneratorParams {
-  mode: PracticeSessionConfig["mode"];
-  difficulty: PracticeSessionConfig["difficulty"];
-  count: number;
-  jobRole?: string;
-  subject?: string;
-  topicFocus?: string;
-}

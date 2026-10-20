@@ -3,6 +3,7 @@ from uuid import UUID
 
 from app.core.errors import APIError
 from app.models.schemas import (
+    GeneratedQuestion,
     QuestionBatchCreate,
     ResponseSubmit,
     SessionConfigCreate,
@@ -129,6 +130,38 @@ class SessionService:
     ) -> SessionConfigWithDetails:
         """Persist the static bank only while created, as checked by the RPC."""
         return await self._mutate("questions", session_id, questions.model_dump(mode="json"))
+
+    async def persist_generated_question(
+        self,
+        session_id: UUID,
+        order_index: int,
+        question: GeneratedQuestion,
+    ) -> SessionConfigWithDetails:
+        """Persist one generated question using the expected sequence index.
+
+        The database RPC locks the session and returns an existing row when a
+        retry races with a successful write for the same index. Provider IDs
+        are never accepted from the client or provider.
+        """
+        data = await self.db.request(
+            "POST",
+            "/rest/v1/rpc/persist_generated_question",
+            json={
+                "p_session_id": str(session_id),
+                "p_order_index": order_index,
+                "p_question": question.model_dump(mode="json"),
+            },
+        )
+        return self._with_sorted_details(data)
+
+    async def start_session(self, session_id: UUID) -> SessionConfigWithDetails:
+        """Start a session after its first question has been persisted."""
+        data = await self.db.request(
+            "POST",
+            "/rest/v1/rpc/start_practice_session",
+            json={"p_session_id": str(session_id)},
+        )
+        return self._with_sorted_details(data)
 
     async def submit_response(
         self, session_id: UUID, response: ResponseSubmit

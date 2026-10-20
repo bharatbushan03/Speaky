@@ -26,14 +26,19 @@ class Settings(BaseSettings):
     # The anon key is safe to use with a user's bearer token for PostgREST/Auth.
     SUPABASE_ANON_KEY: str = ""
     
-    # AI Provider Settings (Configurable - can switch between providers)
-    AI_PROVIDER: str = "openai"  # openai, giani, anthropic, etc.
+    # AI Provider Settings. ``mock`` is deterministic and keeps local/offline
+    # development usable. ``openai`` uses its official documented API when a
+    # backend-only key is configured. Giani is intentionally not enabled: no
+    # official public generation API could be verified.
+    AI_PROVIDER: str = "mock"  # mock, openai, giani
+    AI_REQUEST_TIMEOUT_SECONDS: float = Field(default=20.0, gt=0, le=120)
     
     # OpenAI Settings
     OPENAI_API_KEY: str = ""
     OPENAI_MODEL: str = "gpt-3.5-turbo"
     
-    # Giani AI Settings (to be configured once API is verified)
+    # Giani AI settings are retained as placeholders only. Do not populate or
+    # use them until Giani supplies an official developer API specification.
     GIANI_API_KEY: str = ""
     GIANI_API_URL: str = ""
     GIANI_MODEL: str = ""

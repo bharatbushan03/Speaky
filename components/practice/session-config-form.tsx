@@ -109,7 +109,7 @@ export function SessionConfigForm({ mode, onStartSession, isStarting = false, st
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
       <p className="text-sm text-muted-foreground">
-        Questions come from a static practice bank, not AI generation. Questions may repeat in longer sessions.
+        Questions are generated one at a time for this session, with follow-ups based on your saved answers.
       </p>
       {startError && <p role="alert" className="text-sm text-destructive">{startError}</p>}
       <fieldset disabled={isStarting || isValidating} className="space-y-6">

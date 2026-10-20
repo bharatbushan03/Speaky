@@ -26,7 +26,7 @@ SpeakReady AI helps users improve their English communication skills through:
 - **Database**: Supabase PostgreSQL
 - **Authentication**: Supabase Auth bearer tokens
 - **Session authorization**: user-scoped PostgREST requests plus PostgreSQL RLS
-- **AI Integration**: provider interfaces only in this stage; generation/evaluation are not implemented
+- **AI Integration**: backend-only, one-question-at-a-time generation with validated provider adapters; answer evaluation is not implemented
 - **Speech-to-Text**: browser transcription remains separate from persisted voice transcripts
 
 ### Database
@@ -43,7 +43,7 @@ SpeakReady AI helps users improve their English communication skills through:
 - **Python**: 3.11.9 (see `.python-version`)
 - **npm** or **yarn**: Latest version
 - **Supabase Account**: [Sign up here](https://supabase.com)
-- **AI Provider Account**: OpenAI or Giani AI (optional for testing)
+- **AI Provider Account**: OpenAI (optional); local development uses the deterministic mock adapter. Giani AI is not enabled because its public generation API could not be verified.
 
 ### 1. Clone the Repository
 
@@ -123,7 +123,8 @@ SUPABASE_ANON_KEY=your_supabase_anon_key     # Auth validation and user-scoped A
 DATABASE_URL=your_postgres_connection_string
 
 # AI Provider (choose one)
-AI_PROVIDER=openai  # or giani
+AI_PROVIDER=mock    # mock or openai
+AI_REQUEST_TIMEOUT_SECONDS=20
 OPENAI_API_KEY=your_openai_api_key
 OPENAI_MODEL=gpt-3.5-turbo
 
@@ -161,7 +162,8 @@ API documentation: [http://localhost:8000/docs](http://localhost:8000/docs)
 1. Configure `DATABASE_URL` outside the repository (secret manager or shell).
 2. Install the PostgreSQL `psql` client in the documented environment.
 3. Apply `backend/app/db/migrations/001_initial_schema.sql`, then
-   `backend/app/db/migrations/002_session_management.sql` with
+   `backend/app/db/migrations/002_session_management.sql`, then
+   `backend/app/db/migrations/003_ai_question_generation.sql` with
    `-v ON_ERROR_STOP=1`.
 4. Confirm the Auth users and RLS/RPC checks described in
    `backend/app/db/README.md`.
@@ -210,7 +212,7 @@ speakready-ai/
 
 The backend is designed to work with multiple AI providers. To use a specific provider:
 
-#### OpenAI (Default)
+#### OpenAI (optional)
 
 ```env
 AI_PROVIDER=openai
@@ -218,14 +220,25 @@ OPENAI_API_KEY=your_openai_api_key
 OPENAI_MODEL=gpt-3.5-turbo
 ```
 
-#### Giani AI (Future Integration)
+When selected, the backend uses OpenAI's documented chat-completions JSON
+contract at `https://api.openai.com/v1/chat/completions`; the key never leaves
+the backend.
 
-Once Giani AI API details are verified:
+#### Giani AI (not currently available)
+
+The public Giani.ai pages do not publish a verifiable text-generation endpoint,
+authentication scheme, request shape, response shape, or model identifier.
+The official public sources checked were [giani.ai](https://www.giani.ai/) and
+its [support page](https://www.giani.ai/support); neither provides a developer
+API contract.
+SpeakReady therefore does **not** guess an endpoint or send credentials. Use
+the explicit mock adapter for offline development, or OpenAI with its official
+API key until Giani supplies an official developer specification:
 
 ```env
-AI_PROVIDER=giani
+AI_PROVIDER=giani  # fails closed with a clear configuration error
 GIANI_API_KEY=your_giani_api_key
-GIANI_API_URL=https://api.giani.ai/v1
+GIANI_API_URL=
 GIANI_MODEL=giani-model-name
 ```
 
@@ -295,7 +308,9 @@ POST /api/v1/sessions/                     # Create owned session
 GET /api/v1/sessions/                      # List the authenticated user's sessions
 GET /api/v1/sessions/{session_id}           # Get owned session and details
 PATCH /api/v1/sessions/{session_id}         # Update state/navigation while allowed
-PUT /api/v1/sessions/{session_id}/questions # Save the static question set
+POST /api/v1/sessions/{session_id}/questions/generate # Generate and save the next question
+POST /api/v1/sessions/{session_id}/start # Start after the first question is ready
+PUT /api/v1/sessions/{session_id}/questions # Legacy/static question-set endpoint
 POST /api/v1/sessions/{session_id}/responses # Save text/voice transcript answer
 POST /api/v1/sessions/{session_id}/complete # Complete after every answer is saved
 ```
@@ -304,8 +319,11 @@ Session routes require a Supabase Auth `Authorization: Bearer <access-token>`
 header. The server derives ownership from the token; there is no `user_id`
 query parameter for these routes. Session mutations are checked again by the
 `manage_practice_session` PostgreSQL function, and RLS protects direct reads.
-Question generation and evaluation have separate interfaces but are deliberately
-not called by this stage.
+Question generation uses the stored session configuration and previous answers,
+one question per request. Generated questions are persisted with their sequence
+under an atomic session lock; private evaluation criteria are stored separately
+and are not returned in the practice-room response. Answer evaluation is not
+implemented.
 
 #### AI Feedback
 ```

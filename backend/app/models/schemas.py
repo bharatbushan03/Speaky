@@ -203,6 +203,27 @@ class QuestionCreate(SessionInput):
     order_index: int = Field(..., ge=0)
 
 
+EvaluationCriterion = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)
+]
+
+
+class GeneratedQuestion(SessionInput):
+    """One provider-produced question.
+
+    ``evaluation_criteria`` is deliberately not part of QuestionResponse. It
+    is persisted for the future evaluation feature, but is never returned to
+    the practice-room client as user-visible question content.
+    """
+
+    text: str = Field(..., min_length=1, max_length=5000)
+    context: Optional[str] = Field(None, max_length=2000)
+    hints: Optional[List[QuestionHint]] = Field(None, max_length=10)
+    evaluation_criteria: List[EvaluationCriterion] = Field(
+        default_factory=list, max_length=10
+    )
+
+
 class QuestionResponse(BaseModel):
     id: str
     session_id: str

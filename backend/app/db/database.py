@@ -102,6 +102,7 @@ def _postgrest_error(response: httpx.Response) -> tuple[str, str]:
                 "invalid_transition",
                 "session_incomplete",
                 "invalid_input",
+                "question_duplicate",
             }
             if message in known:
                 return message, _database_detail(message)
@@ -118,13 +119,14 @@ def _database_detail(code: str) -> str:
         "invalid_transition": "That session state transition is not allowed",
         "session_incomplete": "The session is incomplete",
         "invalid_input": "The session input is invalid",
+        "question_duplicate": "The generated question repeats an earlier question",
     }.get(code, "Database request failed")
 
 
 def _status_for_database_error(status_code: int, code: str) -> int:
     if code in {"session_not_found", "question_not_found"}:
         return 404
-    if code in {"invalid_transition", "session_incomplete"}:
+    if code in {"invalid_transition", "session_incomplete", "question_duplicate"}:
         return 409
     if code == "invalid_input":
         return 422

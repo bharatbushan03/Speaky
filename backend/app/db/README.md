@@ -1,8 +1,9 @@
 # Database migrations and session management
 
 SpeakReady AI uses Supabase PostgreSQL. Apply numbered migrations in order from
-the repository root. Migration 002 adds Auth-owned, multi-question sessions; it
-does not change legacy tables, rows, functions, triggers, or policies.
+the repository root. Migration 002 adds Auth-owned, multi-question sessions;
+migration 003 adds one-at-a-time generated-question persistence and private
+evaluation criteria. Legacy tables and behavior remain unchanged.
 
 ## Apply to a clean Supabase project
 
@@ -20,6 +21,7 @@ repository root on Linux/macOS:
 ```bash
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/app/db/migrations/001_initial_schema.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/app/db/migrations/002_session_management.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/app/db/migrations/003_ai_question_generation.sql
 ```
 
 PowerShell equivalent:
@@ -28,6 +30,9 @@ PowerShell equivalent:
 psql "$env:DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/app/db/migrations/001_initial_schema.sql
 if ($LASTEXITCODE -eq 0) {
     psql "$env:DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/app/db/migrations/002_session_management.sql
+}
+if ($LASTEXITCODE -eq 0) {
+    psql "$env:DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/app/db/migrations/003_ai_question_generation.sql
 }
 ```
 
@@ -43,6 +48,11 @@ if ($LASTEXITCODE -eq 0) {
     docker run --rm --network host -v "${PWD}:/workspace:ro" postgres:16-alpine `
       psql "$env:DATABASE_URL" -v ON_ERROR_STOP=1 `
       -f /workspace/backend/app/db/migrations/002_session_management.sql
+  if ($LASTEXITCODE -eq 0) {
+    docker run --rm --network host -v "${PWD}:/workspace:ro" postgres:16-alpine `
+      psql "$env:DATABASE_URL" -v ON_ERROR_STOP=1 `
+      -f /workspace/backend/app/db/migrations/003_ai_question_generation.sql
+  }
 }
 ```
 
@@ -56,9 +66,10 @@ For an existing deployment, verify its migration history/schema first and apply
 only missing migrations. `schema.sql` is a historical bootstrap, **not** another
 numbered migration: it contains extra legacy triggers and RLS policies that are
 absent from 001. Do not apply it after 001/002 as a substitute for migration
-history. Migration 002 works alongside either legacy installation and leaves
-its legacy behavior alone. The numbered 001 → 002 path above is the documented
-clean-project setup; it does not add `schema.sql`'s legacy triggers/policies.
+history. Migration 002 and 003 work alongside either legacy installation and
+leave its legacy behavior alone. The numbered 001 → 002 → 003 path above is the
+documented clean-project setup; it does not add `schema.sql`'s legacy
+triggers/policies.
 
 Use the same ordered commands against the intended deployment database. The main
 integration work owns migration execution, environment/readiness verification,
@@ -107,13 +118,17 @@ assigned by the database. Clients cannot set them through the RPC.
 | `started_at` / `completed_at` | Nullable `timestamptz`; assigned when starting/completing. |
 | `created_at` / `updated_at` | Non-null `timestamptz`; database-assigned. |
 
-Questions store `id`, `session_id`, `text`, `context`, `hints`, `order_index`,
-`created_at`, and `updated_at`. Question text must contain a non-whitespace
+Questions store `id`, `session_id`, `text`, `context`, `hints`, private
+`evaluation_criteria`, `order_index`, `created_at`, and `updated_at`. Question
+text must contain a non-whitespace
 character and be at most 5,000 characters; optional context is at most 2,000.
 Optional `hints` is SQL NULL or a JSONB array of at most 10 nonblank strings,
 each at most 500 characters (`[]` is allowed). An RPC JSON `null` becomes SQL
-NULL. Order indexes are unique per session and the RPC requires exactly the
-configured contiguous `0..question_count-1` set.
+NULL. Private evaluation criteria use the same bounded array shape and are not
+included in `QuestionResponse` or the authenticated PostgREST column grant.
+Order indexes are unique per session; migration
+003 appends one contiguous index at a time and returns an existing row on a
+retry for the same index.
 
 Responses store `id`, `session_id`, `question_id`, `answer_text`,
 `interaction_mode`, `transcript_edited`, `audio_url`, `created_at`, and
@@ -190,10 +205,33 @@ to the same parent, including question replacement, answer upsert, cancellation,
 and completion. Browser calls can reach this RPC directly, so backend validation
 is not the security boundary.
 
+Migration 003 adds these security-definer RPCs:
+
+```sql
+public.persist_generated_question(
+    p_session_id uuid,
+    p_order_index integer,
+    p_question jsonb
+) RETURNS jsonb
+
+public.start_practice_session(p_session_id uuid) RETURNS jsonb
+```
+
+`persist_generated_question` accepts only `text`, `context`, `hints`, and
+private `evaluation_criteria`. It locks the owned session, requires the next
+contiguous sequence index, rejects repeated normalized question text, and
+returns the existing detailed session when that sequence index already exists.
+This makes retries idempotent at the persistence boundary. It allows a created
+session to accumulate questions one at a time and also allows the next question
+while the session is in progress. `start_practice_session` is idempotent for an
+already-started session and requires at least one persisted question.
+
 ### Lifecycle
 
 ```text
-created -- full exact question set + update(status=in_progress) --> in_progress
+created -- first question + start_practice_session -------------> in_progress
+created -- next contiguous question calls ----------------------> created
+in_progress -- next question after saved answer ----------------> in_progress
 created -------------------------------------------------------> cancelled
 in_progress -- complete + every question answered -------------> completed
 in_progress ---------------------------------------------------> cancelled
@@ -225,7 +263,7 @@ mapping:
 | --- | --- |
 | `session_not_found` | Missing/null session ID or session not owned by the caller; another user's existence is not disclosed. |
 | `invalid_transition` | Action forbidden in the current state, backwards/patch completion, or topic edit after creation. |
-| `session_incomplete` | Starting without the full exact question set, or completing without it/all answers. |
+| `session_incomplete` | Starting without a question, or completing without the full configured set/all answers. |
 | `invalid_input` | Missing Auth identity, invalid action, unknown fields, wrong JSON types, malformed child UUID, bounds/constraint violations. |
 | `question_not_found` | Well-formed question UUID does not belong to the owned session. |
 
@@ -253,8 +291,9 @@ infrastructure failures are also outside this business-error mapping.
   for this reason. Every call requires `auth.uid()` and every existing-session
   action checks ownership explicitly before returning data or writing children.
 - Default `PUBLIC` execution and `anon` execution are revoked; only
-  `authenticated` is granted RPC execution. The text/hint-validation and timestamp
-  helper functions are not executable by `PUBLIC`, `anon`, or `authenticated`.
+  `authenticated` is granted RPC execution. The text/hint/evaluation-validation,
+  detail, and timestamp helper functions are not executable by `PUBLIC`, `anon`,
+  or `authenticated`.
 - These guarantees apply to untrusted API/browser roles. Database owners,
   superusers, and service/admin roles with independent write grants remain
   trusted administrative principals; they can bypass RLS or modify the schema.
@@ -311,8 +350,8 @@ multi-connection concurrency must be verified against a designated local or
 test Supabase database with disposable fixtures. No remote migration is run by
 the application or test command.
 
-This is persistence/session management only. It does not generate questions,
-call an AI service, transcribe or upload audio, fetch audio URLs, score answers,
-or implement feedback. The question action accepts a supplied set for later
-integration; it is subject to the same owner/state validation whether called
-from the backend or browser.
+The database boundary persists generated questions but does not call an AI
+service, transcribe or upload audio, fetch audio URLs, score answers, or
+implement feedback. Provider credentials stay in the FastAPI backend. The
+legacy full-set question action remains available for controlled/static data;
+the practice room uses the migration-003 one-at-a-time RPCs.

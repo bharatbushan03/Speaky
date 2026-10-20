@@ -284,7 +284,7 @@ pip install -r requirements.txt
 
 - [ ] User authentication (JWT integration)
 - [ ] Real-time voice recording
-- [ ] AI feedback integration (OpenAI/Giani)
+- [ ] AI answer evaluation/feedback integration (not part of question generation)
 - [ ] Speech-to-text transcription
 - [ ] Progress tracking with charts
 - [ ] Session history with details
@@ -304,16 +304,16 @@ pip install -r requirements.txt
 
 ### AI Provider Configuration
 
-The backend is designed to support multiple AI providers:
+Question generation now supports these backend-only provider modes:
 
-- **OpenAI** (default): Requires OPENAI_API_KEY
-- **Giani AI** (future): Will require GIANI_API_KEY once API is verified
-- **Others**: Easy to add by extending `app/services/ai_service.py`
+- **Mock** (offline default): deterministic adapter for local development/tests
+- **OpenAI**: Requires `AI_PROVIDER=openai`, `OPENAI_API_KEY`, and optionally `OPENAI_MODEL`
+- **Giani AI**: fail-closed; its public generation endpoint and contract are not verified
+- **Others**: Add a provider adapter implementing `QuestionGenerator`
 
-Currently, AI feedback returns placeholder data. To enable real AI:
-1. Add your API key to `backend/.env`
-2. Update `backend/app/services/ai_service.py` with actual API calls
-3. Test with practice sessions
+Generated questions are validated with Pydantic, persisted one at a time, and
+their private evaluation criteria are not returned to the practice room. Answer
+evaluation is intentionally not implemented in this feature.
 
 ### Security Considerations
 

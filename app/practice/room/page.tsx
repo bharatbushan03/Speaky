@@ -131,11 +131,18 @@ function PracticeRoom() {
 
   const navigate = (direction: -1 | 1) => mutate(async (current) => {
     const index = current.current_question_index + direction;
-    if (index < 0 || index >= current.questions.length || (direction === 1 &&
+    if (index < 0 || index >= current.question_count || (direction === 1 &&
       !current.responses.some((answer) => answer.question_id === current.questions[current.current_question_index].id))) {
       return current;
     }
-    return sessionsAPI.updateSession(current.id, { current_question_index: index });
+    let prepared = current;
+    if (direction === 1 && index >= current.questions.length) {
+      prepared = validateRoomSession(await sessionsAPI.generateQuestion(current.id));
+    }
+    if (index >= prepared.questions.length) {
+      throw new Error("The next question is not ready yet. Please try again.");
+    }
+    return sessionsAPI.updateSession(prepared.id, { current_question_index: index });
   });
 
   const complete = () => mutate((current) => {
@@ -204,7 +211,7 @@ function PracticeRoom() {
         </div>
       </div>
       <p className="text-sm text-muted-foreground">
-        Static practice question bank · questions may repeat · only submitted answers are saved.
+        Questions are generated one at a time and saved to this session. Only submitted answers are saved.
         Keep this page URL to resume your saved session.
       </p>
       {isSaving && <p role="status" className="text-sm">Saving to your session...</p>}
@@ -221,7 +228,7 @@ function PracticeRoom() {
             key={currentQuestion.id}
             question={{ ...currentQuestion, context: currentQuestion.context ?? undefined, hints: currentQuestion.hints ?? undefined }}
             questionNumber={session.current_question_index + 1}
-            totalQuestions={session.questions.length}
+            totalQuestions={session.question_count}
             difficulty={session.difficulty}
             mode={session.mode}
           />
@@ -251,16 +258,16 @@ function PracticeRoom() {
             <CardContent className="pt-6">
               <SessionControls
                 currentQuestionIndex={session.current_question_index}
-                totalQuestions={session.questions.length}
+                totalQuestions={session.question_count}
                 answeredQuestions={answeredIndexes.length}
                 answeredQuestionIndexes={answeredIndexes}
                 onPrevious={() => { void navigate(-1); }}
                 onNext={() => { void navigate(1); }}
                 onExit={() => { void cancel(); }}
                 onComplete={() => { void complete(); }}
-                canGoNext={session.current_question_index < session.questions.length - 1 && !!currentAnswer}
+                canGoNext={session.current_question_index < session.question_count - 1 && !!currentAnswer}
                 canGoPrevious={session.current_question_index > 0}
-                isLastQuestion={session.current_question_index === session.questions.length - 1}
+                isLastQuestion={session.current_question_index === session.question_count - 1}
                 disabled={controlsDisabled}
               />
             </CardContent>

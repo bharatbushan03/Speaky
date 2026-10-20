@@ -1,10 +1,16 @@
-"""Provider boundaries for future AI features; session persistence never calls AI."""
+"""Provider boundaries for AI features.
+
+Providers return one validated question at a time. Persistence is still owned
+by the session service, so provider credentials and private evaluation data do
+not cross into the browser.
+"""
 
 from typing import Protocol
 
 from app.core.errors import APIError
 from app.models.schemas import (
     FeedbackResponse,
+    GeneratedQuestion,
     QuestionBatchCreate,
     SessionConfigResponse,
     SessionConfigWithDetails,
@@ -14,9 +20,9 @@ from app.models.schemas import (
 
 
 class QuestionGenerator(Protocol):
-    async def generate_questions(
-        self, session: SessionConfigResponse
-    ) -> QuestionBatchCreate:
+    async def generate_question(
+        self, session: SessionConfigWithDetails
+    ) -> GeneratedQuestion:
         ...
 
 
@@ -40,14 +46,21 @@ class TranscriptionProvider(Protocol):
 
 
 class UnconfiguredQuestionGenerator:
+    def __init__(self, *, code: str = "question_generation_not_configured", detail: str = "AI question generation is not configured") -> None:
+        self.code = code
+        self.detail = detail
+
+    async def generate_question(
+        self, session: SessionConfigWithDetails
+    ) -> GeneratedQuestion:
+        raise APIError(status_code=501, code=self.code, detail=self.detail)
+
+    # Kept as a compatibility boundary for callers from the previous static
+    # generation stage. New code must use generate_question().
     async def generate_questions(
         self, session: SessionConfigResponse
     ) -> QuestionBatchCreate:
-        raise APIError(
-            status_code=501,
-            code="question_generation_not_configured",
-            detail="AI question generation is not configured",
-        )
+        raise APIError(status_code=501, code=self.code, detail=self.detail)
 
 
 class UnconfiguredSessionEvaluator:
