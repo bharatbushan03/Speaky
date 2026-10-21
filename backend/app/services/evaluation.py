@@ -528,5 +528,8 @@ def get_session_evaluator() -> SessionEvaluator:
             timeout=settings.AI_REQUEST_TIMEOUT_SECONDS,
         )
     if provider == "giani":
-        return UnconfiguredSessionEvaluator()
+        evaluator = get_giani_question_generator()
+        if isinstance(evaluator, UnconfiguredQuestionGenerator):
+            return evaluator
+        return evaluator
     return UnconfiguredSessionEvaluator()

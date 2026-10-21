@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     # development usable. ``openai`` uses its official documented API when a
     # backend-only key is configured. Giani is intentionally not enabled: no
     # official public generation API could be verified.
-    AI_PROVIDER: str = "mock"  # mock, openai, giani
+    AI_PROVIDER: str = "openai"  # mock, openai, giani
     AI_REQUEST_TIMEOUT_SECONDS: float = Field(default=20.0, gt=0, le=120)
     EVALUATION_WEIGHTS_JSON: str = (
         '{"grammar":0.15,"vocabulary":0.10,"clarity":0.15,"coherence":0.15,'
