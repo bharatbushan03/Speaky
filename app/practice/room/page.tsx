@@ -14,6 +14,11 @@ import { TextAnswerInput } from "@/components/practice/text-answer-input";
 import { VoiceAnswerInput } from "@/components/practice/voice-answer-input";
 import { SessionControls } from "@/components/practice/session-controls";
 import { EvaluationReport } from "@/components/practice/evaluation-report";
+import { ExplanationLanguage } from "@/lib/types/session";
+import { Speaker, SpeakerOff, Loader2 } from "lucide-react";
+import { useAudioPlayer } from "@/lib/hooks/use-audio-player";
+import { Speaker, SpeakerOff, Loader2 } from "lucide-react";
+import { useAudioPlayer } from "@/lib/hooks/use-audio-player";
 import { Sparkles, ArrowLeft, AlertCircle } from "lucide-react";
 import Link from "next/link";
 
@@ -33,6 +38,9 @@ function PracticeRoom() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [recordingBusy, setRecordingBusy] = useState(false);
+  const [ttsLoading, setTTSLoading] = useState(false);
+  const [ttsError, setTTSError] = useState<string | null>(null);
+  const { play, isPlaying } = useAudioPlayer();
   const [evaluation, setEvaluation] = useState<import("@/lib/types/session-api").SessionEvaluation | null>(null);
   const [evaluationLoading, setEvaluationLoading] = useState(false);
   const [evaluationError, setEvaluationError] = useState<string | null>(null);
@@ -259,11 +267,40 @@ function PracticeRoom() {
         <Button variant="ghost" size="sm" disabled={controlsDisabled} onClick={() => router.push("/practice")}>
           <ArrowLeft className="h-4 w-4 mr-2" />Back
         </Button>
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+<div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Sparkles className="h-4 w-4" /><span className="capitalize">{session.mode} Practice</span>
         </div>
-      </div>
-      <p className="text-sm text-muted-foreground">
+        <div className="flex items-center gap-2">
+          <span className="capitalize text-sm font-medium">
+            Lang:
+          </span>
+          {Object.values(ExplanationLanguage).map((lang) => (
+            <Button
+              key={lang}
+              variant={
+                lang === session.explanation_language
+                  ? "default"
+                  : "outline"
+              }
+              size="sm"
+              disabled={isSaving || recordingBusy || session.status !== "in_progress"}
+              onClick={() => {
+                if (session.status !== "in_progress" || isSaving || recordingBusy) return;
+                // PATCH the session with the new explanation language
+                sessionsAPI.updateSession(session.id, {
+                  explanation_language: lang,
+                }).then((updated) => {
+                  setSession(updated);
+                }).catch((error) => {
+                  setLoadError(getAPIErrorMessage(error));
+                });
+              }}
+            >
+              {lang}
+            </Button>
+          ))}
+        </div>
+        <p className="text-sm text-muted-foreground">
         Questions are generated one at a time and saved to this session. Only submitted answers are saved.
         Keep this page URL to resume your saved session.
       </p>
@@ -285,6 +322,41 @@ function PracticeRoom() {
             difficulty={session.difficulty}
             mode={session.mode}
           />
+          {ttsLoading ? (
+            <p className="text-sm text-muted-foreground">Synthesizing speech...</p>
+          ) : !isSubmitted && (
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={async () => {
+                  setTTSLoading(true);
+                  setTTSError(null);
+                  try {
+                    const response = await sessionsAPI.postTTS({
+                      question_text: currentQuestion.text,
+                      language: session.explanation_language,
+                    });
+                    play(response.url);
+                  } catch (err: any) {
+                    setTTSError(err?.detail || "Failed to synthesize speech");
+                  } finally {
+                    setTTSLoading(false);
+                  }
+                }}
+                disabled={isRecording || isSaving || !currentQuestion}
+                className="gap-2"
+              >
+                <Speaker className="h-4 w-4" />
+                {isPlaying ? (
+                  <SpeakerOff className="h-4 w-4" />
+                ) : "Read Question"
+              </Button>
+              {ttsError && (
+                <p className="text-xs text-destructive">{ttsError}</p>
+              )}
+            </div>
+          )}
           {session.interaction_mode === "text" ? (
             <TextAnswerInput
               key={currentQuestion.id}

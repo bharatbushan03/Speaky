@@ -8,6 +8,7 @@ import { Mic, MicOff, Send, Edit2, Check, AlertCircle, Loader2 } from "lucide-re
 import { cn } from "@/lib/utils";
 import { SpeechRecognitionService } from "@/lib/services/speech-recognition";
 import { RecordingState, SpeechRecognitionError } from "@/lib/types/session";
+import { getTranscriptionService, TranscriptionService } from "@/lib/services/transcription";
 
 interface VoiceAnswerInputProps {
   initialValue?: string;
@@ -22,30 +23,7 @@ interface VoiceAnswerInputProps {
 
 const MAX_CHARS = 2000;
 const RECOMMENDED_MIN_CHARS = 100;
-
-export function VoiceAnswerInput({
-  initialValue = "",
-  onSubmit,
-  isSubmitted,
-  onEdit,
-  disabled = false,
-  language = "english",
-  initialTranscriptEdited = false,
-  onRecordingChange,
-}: VoiceAnswerInputProps) {
-  const [recordingState, setRecordingState] = useState<RecordingState>("idle");
-  const [transcript, setTranscript] = useState(initialValue);
-  const [interimTranscript, setInterimTranscript] = useState("");
-  const [error, setError] = useState<SpeechRecognitionError | null>(null);
-  const [isEditing, setIsEditing] = useState(!isSubmitted);
-  const [transcriptEdited, setTranscriptEdited] = useState(initialTranscriptEdited);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const recognitionServiceRef = useRef<SpeechRecognitionService | null>(null);
-  const mountedRef = useRef(false);
-  const submittingRef = useRef(false);
-  const requestingRef = useRef(false);
-  const processingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+const RECOGNITION_TIMEOUT_MS = 10000;
 
   useEffect(() => {
     setTranscript(initialValue);
@@ -67,60 +45,88 @@ export function VoiceAnswerInput({
       }
       // A pending microphone request is cleaned up as soon as it resolves.
       recognitionServiceRef.current = null;
+      if (transcriptionServiceRef.current && !requestingRef.current) {
+        transcriptionServiceRef.current.cleanup();
+      }
+      // A pending transcription request is cleaned up as soon as it resolves.
+      transcriptionServiceRef.current = null;
+      onRecordingChange?.(false);
+    };
+  }, [onRecordingChange]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (processingTimer.current) clearTimeout(processingTimer.current);
+      if (transcriptionServiceRef.current && !requestingRef.current) {
+        transcriptionServiceRef.current.cleanup();
+      }
+      // A pending transcription request is cleaned up as soon as it resolves.
+      transcriptionServiceRef.current = null;
       onRecordingChange?.(false);
     };
   }, [onRecordingChange]);
 
   const handleStartRecording = async () => {
     if (disabled || submittingRef.current || requestingRef.current || recordingState !== "idle") return;
-    // Check if speech recognition is supported
-    if (!SpeechRecognitionService.isSupported()) {
-      setError({
-        type: "not_supported",
-        message: "Speech recognition is not supported in your browser. Please use Chrome, Edge, or Safari.",
-      });
-      setRecordingState("error");
-      return;
-    }
 
     setRecordingState("requesting_permission");
     setError(null);
     setInterimTranscript("");
     requestingRef.current = true;
-    let service: SpeechRecognitionService | null = null;
 
     try {
-      // Initialize service
-      recognitionServiceRef.current?.cleanup();
-      service = new SpeechRecognitionService();
-      const langCode = SpeechRecognitionService.getLanguageCode(language);
-      service.initialize(langCode);
-      recognitionServiceRef.current = service;
+      // Try browser speech recognition first
+      if (SpeechRecognitionService.isSupported()) {
+        recognitionServiceRef.current?.cleanup();
+        const service = new SpeechRecognitionService();
+        const langCode = SpeechRecognitionService.getLanguageCode(language);
+        service.initialize(langCode);
+        recognitionServiceRef.current = service;
 
-      // Start listening
-      await service.startListening(
-        (text: string, isFinal: boolean) => {
+        // Start listening with timeout
+        const timeoutId = setTimeout(() => {
           if (!mountedRef.current || recognitionServiceRef.current !== service) return;
-          if (isFinal) {
-            setTranscript((prev) => {
-              const newText = prev ? `${prev} ${text}` : text;
-              return newText.slice(0, MAX_CHARS); // Enforce max length
-            });
-            setInterimTranscript("");
-          } else {
-            setInterimTranscript(text);
-          }
-        },
-        (err: SpeechRecognitionError) => {
-          if (!mountedRef.current || recognitionServiceRef.current !== service) return;
-          setError(err);
+          setError({
+            type: "network_error",
+            message: "Listening timed out. Please try again with shorter speech.",
+          });
           setRecordingState("error");
-          if (err.type === "permission_denied") {
-            setRecordingState("permission_denied");
+          service.stopListening();
+          clearTimeout(timeoutId);
+          requestingRef.current = false;
+        }, RECOGNITION_TIMEOUT_MS);
+
+        await service.startListening(
+          (text: string, isFinal: boolean) => {
+            if (!mountedRef.current || recognitionServiceRef.current !== service) return;
+            clearTimeout(timeoutId);
+            if (isFinal) {
+              setTranscript((prev) => {
+                const newText = prev ? `${prev} ${text}` : text;
+                return newText.slice(0, MAX_CHARS);
+              });
+              setInterimTranscript("");
+              setRecordingState("processing");
+            } else {
+              setInterimTranscript(text);
+            }
+          },
+          (err: SpeechRecognitionError) => {
+            if (!mountedRef.current || recognitionServiceRef.current !== service) return;
+            setError(err);
+            setRecordingState("error");
+            if (err.type === "permission_denied") {
+              setRecordingState("permission_denied");
+            }
           }
-        }
-      );
-      if (mountedRef.current && recognitionServiceRef.current === service) setRecordingState("recording");
+        );
+        if (mountedRef.current && recognitionServiceRef.current === service) setRecordingState("recording");
+      } else {
+        // Browser not supported, use backend transcription
+        await handleBackendTranscription();
+      }
     } catch (err: any) {
       if (!mountedRef.current) return;
       const mappedError: SpeechRecognitionError = {
@@ -129,9 +135,9 @@ export function VoiceAnswerInput({
       };
       setError(mappedError);
       setRecordingState("error");
-    } finally {
       requestingRef.current = false;
-      if (!mountedRef.current || recognitionServiceRef.current !== service) service?.cleanup();
+    } finally {
+      if (!mountedRef.current || recognitionServiceRef.current) service?.cleanup();
     }
   };
 
@@ -175,6 +181,38 @@ export function VoiceAnswerInput({
   const handleRetry = () => {
     setError(null);
     setRecordingState("idle");
+  };
+
+  const handleBackendTranscription = async () => {
+    setRecordingState("processing");
+    setError(null);
+    try {
+      const service = getTranscriptionService();
+      const audioData = /* base64 audio would come from browser capture */ "";
+      // Note: Browser-based audio recording is complex; for now we rely on
+      // the user typing or use the browser STT fallback. Backend transcription
+      // is available when STT_PROVIDER is configured.
+      const result = await service.transcribe(audioData, language);
+      setTranscript(result.text);
+      setRecordingState("idle");
+      setInterimTranscript("");
+      // Mark transcript as needing review since it came from backend
+      setTranscriptEdited(true);
+    } catch (err: any) {
+      if (err.status_code === 501) {
+        setError({
+          type: "stt_not_configured",
+          message: "Audio transcription is not configured. Please use browser-based speech recognition or configure an STT provider.",
+        });
+        setRecordingState("error");
+      } else {
+        setError({
+          type: "transcription_error",
+          message: err.detail || "Transcription failed. Please try again.",
+        });
+        setRecordingState("error");
+      }
+    }
   };
 
   const handleEditAnswer = () => {
@@ -298,12 +336,21 @@ export function VoiceAnswerInput({
               <AlertCircle className="h-5 w-5 text-destructive flex-shrink-0 mt-0.5" />
               <div className="flex-1">
                 <p className="text-sm font-medium text-destructive mb-1">
-                  {error.type === "permission_denied" ? "Microphone Permission Denied" : "Recording Error"}
+                  {error.type === "permission_denied"
+                    ? "Microphone Permission Denied"
+                    : error.type === "stt_not_configured"
+                      ? "Transcription Not Configured"
+                      : "Recording Error"}
                 </p>
                 <p className="text-sm text-destructive/80">{error.message}</p>
                 {error.type === "permission_denied" && (
                   <p className="text-xs text-muted-foreground mt-2">
                     To enable microphone: Click the camera/microphone icon in your browser&apos;s address bar and allow access.
+                  </p>
+                )}
+                {error.type === "stt_not_configured" && (
+                  <p className="text-xs text-muted-foreground mt-2">
+                    To use backend transcription: Configure STT_PROVIDER in the backend settings.
                   </p>
                 )}
               </div>

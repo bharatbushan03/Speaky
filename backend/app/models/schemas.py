@@ -495,6 +495,17 @@ class TranscriptionResponse(BaseModel):
     language_detected: Optional[str] = None
 
 
+class TTSRequest(BaseModel):
+    text: str = Field(..., min_length=1, max_length=5000)
+    language: str = "en-US"
+
+
+class TTSResponse(BaseModel):
+    url: str = ""
+    text: str
+    language: str
+
+
 # =============================================================================
 # Progress Tracking
 # =============================================================================

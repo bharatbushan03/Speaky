@@ -51,4 +51,6 @@ export const sessionsAPI = {
     get<SessionEvaluation>(`/api/v1/sessions/${encodeURIComponent(id)}/evaluation`),
   evaluateSession: (id: string): Promise<SessionEvaluation> =>
     post<SessionEvaluation>(`/api/v1/sessions/${encodeURIComponent(id)}/evaluate`),
+  postTTS: (data: { question_text: string; language: string }) =>
+    post<TTSResponse>("/api/v1/feedback/tts", data),
 };
