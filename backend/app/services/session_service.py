@@ -1,5 +1,8 @@
-from typing import Any, List, Optional, Protocol
+from typing import Any, List, Optional, Dict, Tuple, Union, Protocol
 from uuid import UUID
+from datetime import datetime, timedelta
+
+import json
 
 from app.core.errors import APIError
 from app.models.schemas import (
@@ -12,6 +15,13 @@ from app.models.schemas import (
     SessionConfigResponse,
     SessionConfigUpdate,
     SessionConfigWithDetails,
+    ProgressSummary,
+    SessionHistoryItem,
+    SessionHistoryFilters,
+    TrendPoint,
+    RecommendationItem,
+    DimensionScore,
+    EvaluationDimension,
 )
 
 
@@ -211,3 +221,310 @@ class SessionService:
             },
         )
         return SessionEvaluation.model_validate(data)
+
+    async def get_progress_summary(self) -> ProgressSummary:
+        """Compute the authenticated user's progress summary from stored data."""
+        # Get completed sessions with evaluations
+        sessions_rows = await self.db.request(
+            "GET",
+            "/rest/v1/sessions",
+            params={
+                "select": "*,session_evaluations(id, overall_score, dimensions, created_at)",
+                "status": "eq.completed",
+                "order": "created_at.desc",
+            },
+        )
+
+        # Get user progress streak
+        progress_rows = await self.db.request(
+            "GET",
+            "/rest/v1/user_progress",
+            params={
+                "select": "total_sessions,current_streak,longest_streak,last_practice_date",
+                "user_id": f"eq.{self.user_id}",
+                "order": "created_at.desc",
+                "limit": 1,
+            },
+        )
+
+        # Calculate total questions and average score
+        total_sessions = 0
+        total_questions = 0
+        score_sum = 0.0
+        score_count = 0
+        grammar_scores: list[float] = []
+        vocabulary_scores: list[float] = []
+        fluency_scores: list[float] = []
+        has_fluency_data = False
+
+        for session_row in sessions_rows:
+            eval_row = session_row.get("session_evaluations")
+            if eval_row and len(eval_row) > 0:
+                eval_data = eval_row[0]
+                overall = eval_data.get("overall_score")
+                if overall is not None:
+                    score_sum += float(overall)
+                    score_count += 1
+
+            # Count questions from responses
+            session_id = session_row.get("id")
+            if session_id:
+                resp_rows = await self.db.request(
+                    "GET",
+                    "/rest/v1/session_responses",
+                    params={
+                        "select": "id",
+                        "session_id": f"eq.{session_id}",
+                    },
+                )
+                total_questions += len(resp_rows)
+
+            # Collect dimension scores from evaluations
+            for session_row in sessions_rows:
+                eval_row = session_row.get("session_evaluations")
+                if eval_row and len(eval_row) > 0:
+                    dims = eval_row[0].get("dimensions")
+                    if dims:
+                        for dim_name, dim_data in dims.items():
+                            if isinstance(dim_data, dict) and dim_data.get("available") and dim_data.get("score") is not None:
+                                score = float(dim_data["score"])
+                                if dim_name == "grammar":
+                                    grammar_scores.append(score)
+                                elif dim_name == "vocabulary":
+                                    vocabulary_scores.append(score)
+                                elif dim_name == "spoken_fluency":
+                                    fluency_scores.append(score)
+                                    has_fluency_data = True
+
+        avg_score = round(score_sum / score_count, 2) if score_count > 0 else None
+        avg_grammar = round(sum(grammar_scores) / len(grammar_scores), 2) if grammar_scores else None
+        avg_vocab = round(sum(vocabulary_scores) / len(vocabulary_scores), 2) if vocabulary_scores else None
+        avg_fluency = round(sum(fluency_scores) / len(fluency_scores), 2) if fluency_scores else None
+
+        # Get streak data
+        streak_data = progress_rows[0] if progress_rows else None
+        total_sessions_val = int(streak_data.get("total_sessions", 0)) if streak_data else 0
+        current_streak = int(streak_data.get("current_streak", 0)) if streak_data else 0
+        longest_streak = int(streak_data.get("longest_streak", 0)) if streak_data else 0
+        last_practice_date = streak_data.get("last_practice_date") if streak_data else None
+
+        # Count sessions by mode
+        sessions_by_mode: Dict[str, int] = {}
+        for session_row in sessions_rows:
+            mode = session_row.get("mode", "unknown")
+            sessions_by_mode[mode] = sessions_by_mode.get(mode, 0) + 1
+
+        return ProgressSummary(
+            total_sessions=total_sessions_val,
+            average_score=avg_score,
+            grammar_score=avg_grammar,
+            vocabulary_score=avg_vocab,
+            fluency_score=avg_fluency,
+            pronunciation_score=None,
+            current_streak=current_streak,
+            longest_streak=longest_streak,
+            last_practice_date=last_practice_date,
+            sessions_by_mode=sessions_by_mode,
+        )
+
+    async def get_performance_trends(
+        self, sessions_rows: list[dict]
+    ) -> List[TrendPoint]:
+        """Compute performance trends from pre-fetched session rows."""
+        points: List[TrendPoint] = []
+
+        for session_row in sessions_rows:
+            created_at = session_row.get("created_at")
+            if not created_at:
+                continue
+
+            eval_row = session_row.get("session_evaluations")
+            overall = None
+            grammar = None
+            vocabulary = None
+            fluency = None
+
+            if eval_row and len(eval_row) > 0:
+                eval_data = eval_row[0]
+                overall = eval_data.get("overall_score")
+
+                dims = eval_data.get("dimensions")
+                if isinstance(dims, dict):
+                    for dim_name, dim_data in dims.items():
+                        if isinstance(dim_data, dict) and dim_data.get("available") and dim_data.get("score") is not None:
+                            score = float(dim_data["score"])
+                            if dim_name == "grammar":
+                                grammar = score
+                            elif dim_name == "vocabulary":
+                                vocabulary = score
+                            elif dim_name == "spoken_fluency":
+                                fluency = score
+
+            # Format date for trend point
+            date_str = created_at[:10] if isinstance(created_at, str) else str(created_at)[:10]
+
+            points.append(
+                TrendPoint(
+                    date=date_str,
+                    score=overall,
+                    grammar=grammar,
+                    vocabulary=vocabulary,
+                    fluency=fluency,
+                )
+            )
+
+        # Sort by date
+        points.sort(key=lambda p: p.date)
+        return points
+
+    async def get_personalized_recommendations(
+        self, sessions_rows: list[dict]
+    ) -> List[RecommendationItem]:
+        """Generate personalized learning recommendations from session data."""
+        recommendations: List[RecommendationItem] = []
+
+        # Collect all answer evaluations across sessions
+        all_answer_evaluations: list[dict] = []
+        all_responses: list[dict] = []
+
+        for session_row in sessions_rows:
+            eval_row = session_row.get("session_evaluations")
+            if eval_row and len(eval_row) > 0:
+                eval_data = eval_row[0]
+                ae_list = eval_data.get("answer_evaluations", [])
+                # Get the response_evaluations for each answer evaluation
+                for ae in ae_list:
+                    response_id = ae.get("response_id")
+                    question_id = ae.get("question_id")
+                    # Fetch the response details
+                    resp_rows = await self.db.request(
+                        "GET",
+                        "/rest/v1/session_responses",
+                        params={
+                            "select": "*",
+                            "id": f"eq.{response_id}",
+                            "session_id": f"eq.{session_row.get('id')}",
+                        },
+                    )
+                    if resp_rows:
+                        all_responses.append(resp_rows[0])
+
+                    # Fetch the response_evaluations
+                    rp_rows = await self.db.request(
+                        "GET",
+                        "/rest/v1/response_evaluations",
+                        params={
+                            "select": "*",
+                            "evaluation_id": f"eq.{eval_data.get('id')}",
+                            "response_id": f"eq.{response_id}",
+                        },
+                    )
+                    eval_copy = dict(ae)
+                    if rp_rows:
+                        eval_copy["corrections"] = rp_rows[0].get("corrections", [])
+                        eval_copy["explanations"] = rp_rows[0].get("explanations", [])
+                        eval_copy["strengths"] = rp_rows[0].get("strengths", [])
+                        eval_copy["improvements"] = rp_rows[0].get("improvements", [])
+                        eval_copy["retry_recommendations"] = rp_rows[0].get("retry_recommendations", [])
+                    all_answer_evaluations.append(eval_copy)
+
+        # Analyze recurring grammar mistakes
+        grammar_mistakes: Dict[str, int] = {}
+        for ae in all_answer_evaluations:
+            corrections = ae.get("corrections", [])
+            for correction in corrections:
+                cat = correction.get("category", "")
+                if cat == "grammar":
+                    original = correction.get("original", "").lower().strip()
+                    if original:
+                        grammar_mistakes[original] = grammar_mistakes.get(original, 0) + 1
+
+        # Generate recommendations based on analysis
+        if grammar_mistakes:
+            top_mistakes = sorted(grammar_mistakes.items(), key=lambda x: x[1], reverse=True)[:3]
+            for mistake, count in top_mistakes:
+                recommendations.append(
+                    RecommendationItem(
+                        id=f"grammar_{mistake[:30]}",
+                        type="grammar",
+                        title=f"Practise recurring grammar mistake: '{mistake}'",
+                        reason=f"This mistake appeared {count} time(s) across your sessions. Focus on this pattern in your next practice.",
+                        action_href="/practice/grammar",
+                    )
+                )
+
+        # Check for sessions with low scores for retry recommendations
+        low_score_sessions = []
+        for session_row in sessions_rows:
+            eval_row = session_row.get("session_evaluations")
+            if eval_row and len(eval_row) > 0:
+                overall = eval_row[0].get("overall_score")
+                if overall is not None and float(overall) < 7.0:
+                    low_score_sessions.append(session_row.get("id"))
+
+        if low_score_sessions:
+            recommendations.append(
+                RecommendationItem(
+                    id="retry_low_scores",
+                    type="retry",
+                    title="Repeat sessions with lower scores",
+                    reason=f"You have {len(low_score_sessions)} session(s) with scores below 7.0. Re-attempting these will help track improvement.",
+                    action_href=None,
+                )
+            )
+
+        # Vocabulary expansion recommendation
+        vocab_scores = []
+        for session_row in sessions_rows:
+            eval_row = session_row.get("session_evaluations")
+            if eval_row and len(eval_row) > 0:
+                dims = eval_row[0].get("dimensions", {})
+                vocab = dims.get("vocabulary", {}).get("score")
+                if vocab is not None:
+                    vocab_scores.append(float(vocab))
+
+        if vocab_scores and sum(1 for s in vocab_scores if s < 7.0) > len(vocab_scores) * 0.5:
+            recommendations.append(
+                RecommendationItem(
+                    id="vocabulary_expansion",
+                    type="vocabulary",
+                    title="Expand vocabulary for your preferred topics",
+                    reason="More than half of your evaluated dimensions show vocabulary scores below 7.0. Consider focusing on topic-specific vocabulary expansion.",
+                    action_href="/practice/vocabulary",
+                )
+            )
+
+        # Fluency recommendation if data available
+        fluency_scores = []
+        for session_row in sessions_rows:
+            eval_row = session_row.get("session_evaluations")
+            if eval_row and len(eval_row) > 0:
+                dims = eval_row[0].get("dimensions", {})
+                flu = dims.get("spoken_fluency", {})
+                if flu.get("available") and flu.get("score") is not None:
+                    fluency_scores.append(float(flu["score"]))
+
+        if fluency_scores and sum(1 for s in fluency_scores if s < 7.0) > len(fluency_scores) * 0.5:
+            recommendations.append(
+                RecommendationItem(
+                    id="fluency_practice",
+                    type="fluency",
+                    title="Work on pronunciation and fluency",
+                    reason=f"More than half of your sessions show fluency scores below 7.0. Consider practice with voice recording for timing feedback.",
+                    action_href="/practice/fluency",
+                )
+            )
+
+        # Structure improvement recommendation
+        recommendations.append(
+            RecommendationItem(
+                id="structure_improvement",
+                type="structure",
+                title="Improve answer structure for interview/viva questions",
+                reason="Structured answers with a clear point, evidence, and result pattern consistently score higher across practice modes.",
+                action_href="/practice",
+            )
+        )
+
+        # Sort by relevance and return top 5
+        return recommendations[:5]

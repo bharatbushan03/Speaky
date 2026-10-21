@@ -10,7 +10,7 @@ from pydantic import (
     model_validator,
 )
 from typing import Annotated, Any, Dict, Optional, List
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 from uuid import UUID
 
@@ -517,6 +517,81 @@ class UserProgress(BaseModel):
     improvement_trend: List[float]
     strengths: List[str]
     areas_for_improvement: List[str]
+
+
+# =============================================================================
+# Error response
+# =============================================================================
+
+class ErrorResponse(BaseModel):
+    detail: str
+    code: Optional[str] = None
+    errors: Optional[List[dict[str, Any]]] = None
+    request_id: Optional[str] = None
+
+
+# =============================================================================
+# Progress Tracking Models
+# =============================================================================
+
+class ProgressSummary(BaseModel):
+    total_sessions: int
+    average_score: Optional[float] = None
+    grammar_score: Optional[float] = None
+    vocabulary_score: Optional[float] = None
+    fluency_score: Optional[float] = None
+    pronunciation_score: Optional[float] = None
+    current_streak: int = 0
+    longest_streak: int = 0
+    last_practice_date: Optional[str] = None
+    sessions_by_mode: Dict[str, int] = Field(default_factory=dict)
+
+
+class SessionHistoryItem(BaseModel):
+    session_id: str
+    mode: str
+    topic: Optional[str] = None
+    status: str
+    question_count: int
+    started_at: Optional[str] = None
+    completed_at: Optional[str] = None
+    overall_score: Optional[float] = None
+    date: str
+
+    class Config:
+        from_attributes = True
+
+
+class SessionHistoryFilters(BaseModel):
+    mode: Optional[str] = None
+    topic: Optional[str] = None
+    status: Optional[str] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    limit: int = Field(default=50, ge=1, le=200)
+    offset: int = Field(default=0, ge=0)
+
+
+class TrendPoint(BaseModel):
+    date: str
+    score: Optional[float] = None
+    grammar: Optional[float] = None
+    vocabulary: Optional[float] = None
+    fluency: Optional[float] = None
+
+    class Config:
+        from_attributes = True
+
+
+class RecommendationItem(BaseModel):
+    id: str
+    type: str  # "grammar", "vocabulary", "fluency", "structure", "retry"
+    title: str
+    reason: str
+    action_href: Optional[str] = None
+
+    class Config:
+        from_attributes = True
 
 
 # =============================================================================

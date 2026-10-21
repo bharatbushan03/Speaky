@@ -23,6 +23,7 @@ from app.services.ai_interfaces import (
 )
 from app.services.transcription import get_transcription_provider
 from app.services.evaluation import get_tts_provider as _get_tts_provider_from_settings
+from app.services.evaluation import TTSProvider, UnconfiguredTTSProvider
 
 
 class AIService:
