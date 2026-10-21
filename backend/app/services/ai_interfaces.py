@@ -102,6 +102,8 @@ class UnconfiguredTranscriptionProvider:
 
 
 class UnconfiguredTTSProvider:
+    """TTS provider when no API credentials are configured."""
+
     async def synthesize(self, text: str, language: str = "en-US") -> str:
         raise APIError(
             status_code=501,

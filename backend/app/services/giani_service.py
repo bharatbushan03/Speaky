@@ -508,7 +508,7 @@ def get_giani_session_evaluator() -> SessionEvaluator:
     from app.services.evaluation import parse_evaluation_weights
     weights = parse_evaluation_weights(settings.EVALUATION_WEIGHTS_JSON)
 
-    return GianiQuestionGenerator(  # Reuse the question generator pattern, but we need SessionEvaluator
+    return GianiQuestionGenerator(
         api_key=settings.GIANI_API_KEY,
         api_url=settings.GIANI_API_URL,
         model=settings.GIANI_MODEL,

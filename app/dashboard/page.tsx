@@ -65,7 +65,7 @@ export default function DashboardPage() {
           }
         }
 
-        const recentSessions: RecentSession = history.map((session: any) => ({
+        const recentSessions: RecentSession[] = history.map((session: any) => ({
           id: session.session_id,
           mode: session.mode,
           topic: session.topic || undefined,
@@ -131,7 +131,6 @@ export default function DashboardPage() {
   // Calculate practice time from sessions
   const totalDurationMinutes = data.recentSessions.reduce(
     (sum, session) => {
-      // Extract duration from "15 min", "20 min", etc.
       const match = session.duration.match(/(\d+)/);
       const minutes = match ? parseInt(match[1], 10) : 0;
       return sum + minutes;
@@ -184,69 +183,65 @@ export default function DashboardPage() {
         </div>
 
         {/* Progress Summary Section */}
-        {data.averageScore !== null && (
-          <div className="grid lg:grid-cols-3 gap-6 mb-8">
-            <Card>
-              <CardHeader>
-                <CardTitle>Communication Score Trend</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-3xl font-bold {data.averageScore >= 70 ? "text-green-600" : data.averageScore >= 50 ? "text-yellow-600" : "text-red-600"}">
-                  {data.averageScore}
-                </div>
-                <div className="text-sm text-muted-foreground mb-2">out of 10</div>
-                <Progress value={Math.round(data.averageScore)} className="my-4" />
-                <div className="grid grid-cols-2 text-xs text-muted-foreground gap-2">
-                  <div>
-                    <strong>Grammar:</strong> {data.grammarScore !== null ? `${data.grammarScore}` : "N/A"} / 10
-                  </div>
-                  <div>
-                    <strong>Vocabulary:</strong> {data.vocabularyScore !== null ? `${data.vocabularyScore}` : "N/A"} / 10
-                  </div>
-                </div>
-                {data.fluencyScore !== null && (
-                  <div>
-                    <strong>Fluency:</strong> {data.fluencyScore} / 10
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>Communication Score Trend</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold {data.averageScore >= 70 ? "text-green-600" : data.averageScore >= 50 ? "text-yellow-600" : "text-red-600"}">
+              {data.averageScore}
+            </div>
+            <div className="text-sm text-muted-foreground mb-2">out of 10</div>
+            <Progress value={Math.round(data.averageScore)} className="my-4" />
+            <div className="grid grid-cols-2 text-xs text-muted-foreground gap-2">
+              <div>
+                <strong>Grammar:</strong> {data.grammarScore !== null ? `${data.grammarScore}` : "N/A"} / 10
+              </div>
+              <div>
+                <strong>Vocabulary:</strong> {data.vocabularyScore !== null ? `${data.vocabularyScore}` : "N/A"} / 10
+              </div>
+            </div>
+            {data.fluencyScore !== null && (
+              <div>
+                <strong>Fluency:</strong> {data.fluencyScore} / 10
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
-            <Card>
-              <CardHeader>
-                <CardTitle>Learning Streak</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold {data.currentStreak > 0 ? "text-green-600" : "text-red-500"}">
-                  {data.currentStreak > 0 ? data.currentStreak : 0}
-                </div>
-                <div className="text-sm text-muted-foreground">Current streak</div>
-                <div className="text-sm text-muted-foreground">Longest: {data.longestStreak} days</div>
-                {data.lastPracticeDate && (
-                  <div className="mt-2 text-xs text-muted-foreground">
-                    Last practice: {data.lastPracticeDate}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>Learning Streak</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold {data.currentStreak > 0 ? "text-green-600" : "text-red-500"}">
+              {data.currentStreak > 0 ? data.currentStreak : 0}
+            </div>
+            <div className="text-sm text-muted-foreground">Current streak</div>
+            <div className="text-sm text-muted-foreground">Longest: {data.longestStreak} days</div>
+            {data.lastPracticeDate && (
+              <div className="mt-2 text-xs text-muted-foreground">
+                Last practice: {data.lastPracticeDate}
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
-            <Card>
-              <CardHeader>
-                <CardTitle>Sessions by Mode</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-2 gap-2">
-                  {Object.entries(data.sessionsByMode).map(([mode, count]) => (
-                    <div key={mode} className="flex items-center justify-between text-sm">
-                      <span>{mode}</span>
-                      <span>{count}</span>
-                    </div>
-                  ))}
+        <Card>
+          <CardHeader>
+            <CardTitle>Sessions by Mode</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 gap-2">
+              {Object.entries(data.sessionsByMode).map(([mode, count]) => (
+                <div key={mode} className="flex items-center justify-between text-sm">
+                  <span>{mode}</span>
+                  <span>{count}</span>
                 </div>
-              </CardContent>
-            </Card>
-          </div>
-        )}
+              ))}
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Two Column Layout for Recent Sessions and Recommendations */}
         <div className="grid lg:grid-cols-3 gap-6 mb-8">
@@ -265,7 +260,7 @@ export default function DashboardPage() {
                     {data.recentSessions.map((session, index) => (
                       <div key={index} className="flex items-start gap-4">
                         <div className="flex-1 min-w-0">
-                          <h4 className="font-semibold text-sm {session.overallScore !== null ? session.overallScore >= 80 ? "text-green-600" : session.overallScore >= 60 ? "text-yellow-600" : "text-red-600" : ""}>
+                          <h4 className="font-semibold text-sm {session.overallScore !== null ? session.overallScore >= 80 ? "text-green-600" : session.overallScore >= 60 ? "text-yellow-600" : "text-red-600" : ""}">
                             {session.mode} Practice
                           </h4>
                           <p className="text-xs text-muted-foreground mt-1">
@@ -308,11 +303,7 @@ export default function DashboardPage() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">
-                  {!data.recentSessions.some(s => s.overallScore !== null && s.overallScore < 7) ? (
-                    <p className="text-sm text-muted-foreground">
-                      Keep practicing! Your scores are looking good.
-                    </p>
-                  ) : (
+                  {data.recentSessions.some(s => s.overallScore !== null && s.overallScore < 7) ? (
                     <>
                       {/* Grammar recommendation if grammar score is low */}
                       {data.grammarScore !== null && data.grammarScore < 7 && (
@@ -347,7 +338,7 @@ export default function DashboardPage() {
                         </div>
                       )}
 
-                      {/* Structure recommendation */
+                      {/* Structure recommendation */}
                       <div className="flex items-start gap-2 px-3 py-2 rounded-lg border border-blue-300">
                         <GraduationCap className="h-3 w-3 text-blue-500 flex-shrink-0" />
                         <div>
@@ -356,6 +347,10 @@ export default function DashboardPage() {
                         </div>
                       </div>
                     </>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      Keep practicing! Your scores are looking good.
+                    </p>
                   )}
                 </CardContent>
               </Card>

@@ -19,7 +19,7 @@ export function useAudioPlayer(): UseAudioPlayerReturn {
 
     audioRef.current.onplay = () => setIsPlaying(true);
     audioRef.current.onpause = () => setIsPlaying(false);
-    audioRef.current.on ended = () => setIsPlaying(false);
+    audioRef.current.onended = () => setIsPlaying(false);
 
     return () => {
       audioRef.current = null;
