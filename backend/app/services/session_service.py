@@ -3,6 +3,8 @@ from uuid import UUID
 
 from app.core.errors import APIError
 from app.models.schemas import (
+    EvaluationDraft,
+    SessionEvaluation,
     GeneratedQuestion,
     QuestionBatchCreate,
     ResponseSubmit,
@@ -172,3 +174,40 @@ class SessionService:
     async def complete_session(self, session_id: UUID) -> SessionConfigWithDetails:
         """Complete once every configured question is answered; repeat calls are safe."""
         return await self._mutate("complete", session_id, {})
+
+    async def get_evaluation(self, session_id: UUID) -> SessionEvaluation:
+        """Read the latest report through the authenticated user's RLS context."""
+        rows = await self.db.request(
+            "GET",
+            "/rest/v1/session_evaluations",
+            params={
+                "select": "*,answer_evaluations:response_evaluations(*)",
+                "session_id": f"eq.{session_id}",
+            },
+        )
+        if not rows:
+            raise APIError(
+                status_code=404,
+                code="evaluation_not_found",
+                detail="No evaluation is available for this session",
+            )
+        return SessionEvaluation.model_validate(rows[0])
+
+    async def persist_evaluation(
+        self,
+        session_id: UUID,
+        evaluation: EvaluationDraft,
+        explanation_language: str,
+    ) -> SessionEvaluation:
+        """Persist one report and its response-linked child evaluations atomically."""
+        payload = evaluation.model_dump(mode="json")
+        payload["explanation_language"] = explanation_language
+        data = await self.db.request(
+            "POST",
+            "/rest/v1/rpc/persist_session_evaluation",
+            json={
+                "p_session_id": str(session_id),
+                "p_evaluation": payload,
+            },
+        )
+        return SessionEvaluation.model_validate(data)

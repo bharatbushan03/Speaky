@@ -4,6 +4,7 @@ import {
   SessionDetail,
   SessionQuestionRequest,
   SessionUpdateRequest,
+  SessionEvaluation,
   SubmitResponseRequest,
 } from "@/lib/types/session-api";
 
@@ -46,4 +47,8 @@ export const sessionsAPI = {
     post<SessionDetail>(`/api/v1/sessions/${encodeURIComponent(id)}/responses`, data),
   completeSession: (id: string): Promise<SessionDetail> =>
     post<SessionDetail>(`/api/v1/sessions/${encodeURIComponent(id)}/complete`),
+  getEvaluation: (id: string): Promise<SessionEvaluation> =>
+    get<SessionEvaluation>(`/api/v1/sessions/${encodeURIComponent(id)}/evaluation`),
+  evaluateSession: (id: string): Promise<SessionEvaluation> =>
+    post<SessionEvaluation>(`/api/v1/sessions/${encodeURIComponent(id)}/evaluate`),
 };

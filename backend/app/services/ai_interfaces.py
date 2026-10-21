@@ -9,6 +9,7 @@ from typing import Protocol
 
 from app.core.errors import APIError
 from app.models.schemas import (
+    EvaluationDraft,
     FeedbackResponse,
     GeneratedQuestion,
     QuestionBatchCreate,
@@ -29,7 +30,7 @@ class QuestionGenerator(Protocol):
 class SessionEvaluator(Protocol):
     async def evaluate_session(
         self, session: SessionConfigWithDetails
-    ) -> FeedbackResponse:
+    ) -> EvaluationDraft:
         ...
 
 
@@ -42,6 +43,12 @@ class TurnFeedbackAnalyzer(Protocol):
 
 class TranscriptionProvider(Protocol):
     async def transcribe(self, audio_data: str, language: str) -> TranscriptionResponse:
+        ...
+
+
+class TTSProvider(Protocol):
+    async def synthesize(self, text: str, language: str = "en-US") -> str:
+        """Return a URL to the synthesized speech audio. Returns empty string if not supported."""
         ...
 
 
@@ -66,7 +73,7 @@ class UnconfiguredQuestionGenerator:
 class UnconfiguredSessionEvaluator:
     async def evaluate_session(
         self, session: SessionConfigWithDetails
-    ) -> FeedbackResponse:
+    ) -> EvaluationDraft:
         raise APIError(
             status_code=501,
             code="session_evaluation_not_configured",
@@ -91,4 +98,13 @@ class UnconfiguredTranscriptionProvider:
             status_code=501,
             code="transcription_not_configured",
             detail="Audio transcription is not configured",
+        )
+
+
+class UnconfiguredTTSProvider:
+    async def synthesize(self, text: str, language: str = "en-US") -> str:
+        raise APIError(
+            status_code=501,
+            code="tts_not_configured",
+            detail="Text-to-speech is not configured",
         )

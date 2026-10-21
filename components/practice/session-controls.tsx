@@ -121,7 +121,7 @@ export function SessionControls({
               <AlertDialogHeader>
                 <AlertDialogTitle>Complete Practice Session?</AlertDialogTitle>
                 <AlertDialogDescription>
-                  All {totalQuestions} answers are saved. Complete this session to make it read-only. AI scoring and feedback are not available in this flow.
+                   All {totalQuestions} answers are saved. Complete this session to make it read-only and generate your answer coaching report.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>

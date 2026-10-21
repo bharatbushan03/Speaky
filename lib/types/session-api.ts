@@ -47,6 +47,57 @@ export interface SessionDetail extends SessionConfigRequest {
   responses: SessionResponse[];
 }
 
+export type EvaluationDimension =
+  | "grammar"
+  | "vocabulary"
+  | "clarity"
+  | "coherence"
+  | "relevance"
+  | "interview_technique"
+  | "technical_correctness"
+  | "spoken_fluency";
+
+export interface DimensionScore {
+  score: number | null;
+  available: boolean;
+  explanation: string;
+  unavailable_reason?: string | null;
+}
+
+export interface AnswerCorrection {
+  category: EvaluationDimension;
+  original: string;
+  corrected: string;
+  explanation: string;
+}
+
+export interface AnswerEvaluation {
+  response_id: string;
+  question_id: string;
+  corrected_answer: string;
+  corrections: AnswerCorrection[];
+  explanations: string[];
+  strengths: string[];
+  improvements: string[];
+  retry_recommendations: string[];
+}
+
+export interface SessionEvaluation {
+  id: string;
+  session_id: string;
+  overall_score: number | null;
+  dimensions: Partial<Record<EvaluationDimension, DimensionScore>>;
+  summary: string;
+  explanations: string[];
+  strengths: string[];
+  improvements: string[];
+  retry_recommendations: string[];
+  answer_evaluations: AnswerEvaluation[];
+  explanation_language: PracticeSessionConfig["explanationLanguage"];
+  created_at: string;
+  updated_at: string;
+}
+
 export interface SessionUpdateRequest {
   status?: "in_progress" | "cancelled";
   current_question_index?: number;

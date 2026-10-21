@@ -3,11 +3,14 @@ from typing import List
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, status
+from pydantic import ValidationError
 
 from app.core.errors import APIError
 from app.core.security import AuthenticatedUser, get_current_user
 from app.db.database import get_user_database
 from app.models.schemas import (
+    EvaluationDraft,
+    SessionEvaluation,
     QuestionBatchCreate,
     ResponseSubmit,
     SessionConfigCreate,
@@ -16,8 +19,14 @@ from app.models.schemas import (
     SessionConfigWithDetails,
 )
 from app.services.session_service import SessionService
-from app.services.ai_interfaces import QuestionGenerator
+from app.services.ai_interfaces import QuestionGenerator, SessionEvaluator
 from app.services.question_generation import get_question_generator
+from app.services.evaluation import (
+    get_session_evaluator,
+    normalize_evaluation,
+    parse_evaluation_weights,
+)
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -146,3 +155,62 @@ async def complete_session(
 ):
     """Complete an answered session idempotently; no request body is required."""
     return await service.complete_session(session_id)
+
+
+@router.get("/{session_id}/evaluation", response_model=SessionEvaluation)
+async def get_session_evaluation(
+    session_id: UUID,
+    service: SessionService = Depends(get_session_service),
+):
+    """Return the persisted report for an owned completed session."""
+    return await service.get_evaluation(session_id)
+
+
+@router.post("/{session_id}/evaluate", response_model=SessionEvaluation)
+async def evaluate_session(
+    session_id: UUID,
+    service: SessionService = Depends(get_session_service),
+    evaluator: SessionEvaluator = Depends(get_session_evaluator),
+):
+    """Evaluate and persist every answer in an owned completed session.
+
+    Existing reports are returned idempotently. A provider failure never writes
+    a partial report, so the browser can safely retry the same request.
+    """
+    session = await service.get_session(session_id)
+    if session.status != "completed":
+        raise APIError(
+            409,
+            "evaluation_not_allowed",
+            "Only completed sessions can be evaluated",
+        )
+
+    try:
+        return await service.get_evaluation(session_id)
+    except APIError as exc:
+        if exc.code != "evaluation_not_found":
+            raise
+
+    try:
+        draft = EvaluationDraft.model_validate(await evaluator.evaluate_session(session))
+        draft = normalize_evaluation(
+            session,
+            draft,
+            parse_evaluation_weights(settings.EVALUATION_WEIGHTS_JSON),
+        )
+        return await service.persist_evaluation(
+            session_id,
+            draft,
+            session.explanation_language.value,
+        )
+    except APIError:
+        raise
+    except ValidationError as exc:
+        raise APIError(
+            502,
+            "provider_invalid_response",
+            "The AI provider returned invalid evaluation data",
+        ) from exc
+    except Exception as exc:
+        logger.exception("Session evaluator failed without a stable APIError")
+        raise APIError(503, "provider_unavailable", "The AI provider is unavailable") from exc

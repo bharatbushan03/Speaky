@@ -9,7 +9,7 @@ from pydantic import (
     field_validator,
     model_validator,
 )
-from typing import Annotated, Any, Optional, List
+from typing import Annotated, Any, Dict, Optional, List
 from datetime import datetime
 from enum import Enum
 from uuid import UUID
@@ -71,6 +71,27 @@ class FeedbackCategory(str, Enum):
     VOCABULARY = "vocabulary"
     PRONUNCIATION = "pronunciation"
     CONTENT = "content"
+
+
+class EvaluationDimension(str, Enum):
+    GRAMMAR = "grammar"
+    VOCABULARY = "vocabulary"
+    CLARITY = "clarity"
+    COHERENCE = "coherence"
+    RELEVANCE = "relevance"
+    INTERVIEW_TECHNIQUE = "interview_technique"
+    TECHNICAL_CORRECTNESS = "technical_correctness"
+    SPOKEN_FLUENCY = "spoken_fluency"
+
+
+class CorrectionCategory(str, Enum):
+    GRAMMAR = "grammar"
+    VOCABULARY = "vocabulary"
+    CLARITY = "clarity"
+    COHERENCE = "coherence"
+    RELEVANCE = "relevance"
+    INTERVIEW_TECHNIQUE = "interview_technique"
+    TECHNICAL_CORRECTNESS = "technical_correctness"
 
 
 # =============================================================================
@@ -307,6 +328,108 @@ class ResponseItem(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# =============================================================================
+# Answer evaluation schemas
+# =============================================================================
+
+class EvaluationWeights(BaseModel):
+    """Configurable weights used only for dimensions with a reliable score."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    grammar: float = Field(default=0.15, ge=0, le=1)
+    vocabulary: float = Field(default=0.10, ge=0, le=1)
+    clarity: float = Field(default=0.15, ge=0, le=1)
+    coherence: float = Field(default=0.15, ge=0, le=1)
+    relevance: float = Field(default=0.15, ge=0, le=1)
+    interview_technique: float = Field(default=0.15, ge=0, le=1)
+    technical_correctness: float = Field(default=0.15, ge=0, le=1)
+    spoken_fluency: float = Field(default=0.10, ge=0, le=1)
+
+    @model_validator(mode="after")
+    def at_least_one_weight(self):
+        if sum(self.model_dump().values()) <= 0:
+            raise ValueError("At least one evaluation weight must be greater than zero")
+        return self
+
+
+class DimensionScore(BaseModel):
+    """A score is nullable by design: unavailable is not the same as zero."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    score: Optional[float] = Field(default=None, ge=0, le=10)
+    available: bool = True
+    explanation: str = Field(..., min_length=1, max_length=2000)
+    unavailable_reason: Optional[str] = Field(default=None, max_length=500)
+
+    @model_validator(mode="after")
+    def validate_availability(self):
+        if self.available and self.score is None:
+            raise ValueError("Available dimensions must include a score")
+        if not self.available:
+            if self.score is not None:
+                raise ValueError("Unavailable dimensions must not include a score")
+            if not self.unavailable_reason:
+                raise ValueError("Unavailable dimensions need a reason")
+        return self
+
+
+class AnswerCorrection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    category: CorrectionCategory
+    original: str = Field(..., min_length=1, max_length=2000)
+    corrected: str = Field(..., min_length=1, max_length=2000)
+    explanation: str = Field(..., min_length=1, max_length=2000)
+
+
+class AnswerEvaluation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    response_id: str
+    question_id: str
+    corrected_answer: str = Field(..., min_length=1, max_length=20000)
+    corrections: List[AnswerCorrection] = Field(default_factory=list, max_length=50)
+    explanations: List[str] = Field(default_factory=list, max_length=20)
+    strengths: List[str] = Field(default_factory=list, max_length=20)
+    improvements: List[str] = Field(default_factory=list, max_length=20)
+    retry_recommendations: List[str] = Field(default_factory=list, max_length=20)
+
+
+class PersistedAnswerEvaluation(AnswerEvaluation):
+    id: str
+    evaluation_id: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class EvaluationDraft(BaseModel):
+    """Provider output before the trusted session/response IDs are attached."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    overall_score: Optional[float] = Field(default=None, ge=0, le=10)
+    dimensions: Dict[EvaluationDimension, DimensionScore] = Field(default_factory=dict)
+    summary: str = Field(..., min_length=1, max_length=4000)
+    explanations: List[str] = Field(default_factory=list, max_length=20)
+    strengths: List[str] = Field(default_factory=list, max_length=20)
+    improvements: List[str] = Field(default_factory=list, max_length=20)
+    retry_recommendations: List[str] = Field(default_factory=list, max_length=20)
+    answer_evaluations: List[AnswerEvaluation] = Field(default_factory=list, max_length=10)
+
+
+class SessionEvaluation(EvaluationDraft):
+    """Persisted report returned to the authenticated practice-room client."""
+
+    id: str
+    session_id: str
+    explanation_language: ExplanationLanguage
+    created_at: datetime
+    updated_at: datetime
+    answer_evaluations: List[PersistedAnswerEvaluation] = Field(default_factory=list, max_length=10)
 
 
 # =============================================================================

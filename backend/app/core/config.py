@@ -32,6 +32,11 @@ class Settings(BaseSettings):
     # official public generation API could be verified.
     AI_PROVIDER: str = "mock"  # mock, openai, giani
     AI_REQUEST_TIMEOUT_SECONDS: float = Field(default=20.0, gt=0, le=120)
+    EVALUATION_WEIGHTS_JSON: str = (
+        '{"grammar":0.15,"vocabulary":0.10,"clarity":0.15,"coherence":0.15,'
+        '"relevance":0.15,"interview_technique":0.15,"technical_correctness":0.15,'
+        '"spoken_fluency":0.10}'
+    )
     
     # OpenAI Settings
     OPENAI_API_KEY: str = ""
@@ -45,6 +50,20 @@ class Settings(BaseSettings):
     
     # Speech-to-Text Settings
     STT_PROVIDER: str = "openai"  # openai, google, azure
+    
+    # Audio recording limits
+    MAX_AUDIO_URL_LENGTH: int = 1000
+    AUDIO_RETENTION_DAYS: int = 30  # Default retention period for transcribed audio
+    
+    # Transcription language configuration
+    STT_LANGUAGE_MAP: dict = {
+        "en-US": "en-US",
+        "hi-IN": "hi-IN",
+        "ta-IN": "ta-IN",
+        "te-IN": "te-IN",
+        "bn-IN": "bn-IN",
+        "kn-IN": "kn-IN",
+    }
     
     # Security Settings
     SECRET_KEY: str = Field(default="change-this-in-production", repr=False)

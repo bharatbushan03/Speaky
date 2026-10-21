@@ -13,6 +13,7 @@ import { QuestionDisplay } from "@/components/practice/question-display";
 import { TextAnswerInput } from "@/components/practice/text-answer-input";
 import { VoiceAnswerInput } from "@/components/practice/voice-answer-input";
 import { SessionControls } from "@/components/practice/session-controls";
+import { EvaluationReport } from "@/components/practice/evaluation-report";
 import { Sparkles, ArrowLeft, AlertCircle } from "lucide-react";
 import Link from "next/link";
 
@@ -32,6 +33,10 @@ function PracticeRoom() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [recordingBusy, setRecordingBusy] = useState(false);
+  const [evaluation, setEvaluation] = useState<import("@/lib/types/session-api").SessionEvaluation | null>(null);
+  const [evaluationLoading, setEvaluationLoading] = useState(false);
+  const [evaluationError, setEvaluationError] = useState<string | null>(null);
+  const [evaluationAttempt, setEvaluationAttempt] = useState(0);
   const [attempt, setAttempt] = useState(0);
   const sessionRef = useRef<SessionDetail | null>(null);
   const savingRef = useRef(false);
@@ -47,6 +52,10 @@ function PracticeRoom() {
     setIsSaving(false);
     setRecordingBusy(false);
     setSaveError(null);
+    setEvaluation(null);
+    setEvaluationLoading(false);
+    setEvaluationError(null);
+    setEvaluationAttempt(0);
     setLoadError(null);
     setIsLoading(true);
     let id = requestedId;
@@ -86,6 +95,36 @@ function PracticeRoom() {
       viewVersion.current += 1;
     };
   }, [requestedId, router, attempt]);
+
+  useEffect(() => {
+    if (!session || session.status !== "completed") return;
+    let active = true;
+    setEvaluationLoading(true);
+    setEvaluationError(null);
+
+    const load = async () => {
+      try {
+        let report;
+        try {
+          report = await sessionsAPI.getEvaluation(session.id);
+        } catch (error) {
+          const status = error && typeof error === "object" && "status" in error
+            ? (error as { status?: number }).status
+            : undefined;
+          if (status !== 404) throw error;
+          report = await sessionsAPI.evaluateSession(session.id);
+        }
+        if (active) setEvaluation(report);
+      } catch (error) {
+        if (active) setEvaluationError(getAPIErrorMessage(error));
+      } finally {
+        if (active) setEvaluationLoading(false);
+      }
+    };
+
+    void load();
+    return () => { active = false; };
+  }, [session?.id, session?.status, evaluationAttempt]);
 
   const reload = () => {
     if (savingRef.current || recordingBusy) return;
@@ -154,6 +193,12 @@ function PracticeRoom() {
 
   const cancel = () => mutate((current) => sessionsAPI.updateSession(current.id, { status: "cancelled" }));
 
+  const retryEvaluation = () => {
+    setEvaluation(null);
+    setEvaluationError(null);
+    setEvaluationAttempt((value) => value + 1);
+  };
+
   if (isLoading) return <RoomLoading />;
   if (loadError || !session) {
     return (
@@ -176,8 +221,16 @@ function PracticeRoom() {
           <h1 className="text-2xl font-bold">Session {session.status}</h1>
           <p>{session.responses.length} of {session.question_count} answers saved.</p>
           <p className="text-sm text-muted-foreground">
-            This session is read-only. Automated scoring and AI feedback are not available in this flow.
+            This session is read-only. Your saved answers remain available for review.
           </p>
+          {session.status === "completed" && (
+            <EvaluationReport
+              evaluation={evaluation}
+              isLoading={evaluationLoading}
+              error={evaluationError}
+              onRetry={retryEvaluation}
+            />
+          )}
           <ol className="space-y-4">
             {[...session.questions].sort((a, b) => a.order_index - b.order_index).map((question) => (
               <li key={question.id} className="rounded-lg border p-4 space-y-2">
