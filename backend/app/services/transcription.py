@@ -5,13 +5,12 @@ error handling, timeouts, and language mapping. Falls back gracefully when
 a provider or language is not supported.
 """
 
-import json
+import base64
+import binascii
 import logging
 from typing import Any, Optional
 
 import httpx
-from pydantic import ValidationError
-
 from app.core.config import settings
 from app.core.errors import APIError
 from app.models.schemas import TranscriptionResponse
@@ -37,20 +36,25 @@ class OpenAIWhisperTranscriptionProvider:
         self.transport = transport
 
     async def transcribe(self, audio_data: str, language: str = "en-IN") -> TranscriptionResponse:
-        payload = {
-            "model": self.model,
-            "language": language,
-            "input": audio_data,
-        }
+        encoded = audio_data.split(",", 1)[1] if audio_data.startswith("data:") and "," in audio_data else audio_data
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
+            audio_bytes = base64.b64decode(encoded, validate=True)
+        except (ValueError, binascii.Error) as exc:
+            raise APIError(422, "invalid_audio", "Audio data must be valid base64") from exc
+        if not audio_bytes:
+            raise APIError(422, "invalid_audio", "Audio data must not be empty")
+        files = {"file": ("answer.webm", audio_bytes, "audio/webm")}
+        data = {"model": self.model, "language": language}
+        try:
+            client_kwargs: dict[str, Any] = {"timeout": self.timeout}
+            if self.transport is not None:
+                client_kwargs["transport"] = self.transport
+            async with httpx.AsyncClient(**client_kwargs) as client:
                 response = await client.post(
                     "https://api.openai.com/v1/audio/transcriptions",
-                    headers={
-                        "Authorization": f"Bearer {self.api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json=payload,
+                    headers={"Authorization": f"Bearer {self.api_key}"},
+                    data=data,
+                    files=files,
                 )
         except httpx.TimeoutException as exc:
             raise APIError(504, "provider_timeout", "The STT provider timed out") from exc

@@ -5,6 +5,7 @@ import { useState, useEffect, useRef } from "react";
 interface UseAudioPlayerReturn {
   isPlaying: boolean;
   play: (url: string) => Promise<void>;
+  playBlob: (blob: Blob) => Promise<void>;
   stop: () => void;
 }
 
@@ -15,13 +16,14 @@ export function useAudioPlayer(): UseAudioPlayerReturn {
   useEffect(() => {
     audioRef.current = new Audio();
     audioRef.current.autoplay = false;
-    audioRef.current.playsInline = true;
 
     audioRef.current.onplay = () => setIsPlaying(true);
     audioRef.current.onpause = () => setIsPlaying(false);
     audioRef.current.onended = () => setIsPlaying(false);
 
     return () => {
+      audioRef.current?.pause();
+      if (audioRef.current) audioRef.current.src = "";
       audioRef.current = null;
     };
   }, []);
@@ -35,7 +37,17 @@ export function useAudioPlayer(): UseAudioPlayerReturn {
       setIsPlaying(true);
     } catch (err) {
       setIsPlaying(false);
-      console.error("Audio playback failed:", err);
+      // Playback errors are surfaced by the caller that requested the audio.
+      throw err;
+    }
+  };
+
+  const playBlob = async (blob: Blob) => {
+    const objectUrl = URL.createObjectURL(blob);
+    try {
+      await play(objectUrl);
+    } finally {
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
     }
   };
 
@@ -47,5 +59,5 @@ export function useAudioPlayer(): UseAudioPlayerReturn {
     }
   };
 
-  return { isPlaying, play, stop };
+  return { isPlaying, play, playBlob, stop };
 }

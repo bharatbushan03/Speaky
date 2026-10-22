@@ -14,10 +14,7 @@ import { TextAnswerInput } from "@/components/practice/text-answer-input";
 import { VoiceAnswerInput } from "@/components/practice/voice-answer-input";
 import { SessionControls } from "@/components/practice/session-controls";
 import { EvaluationReport } from "@/components/practice/evaluation-report";
-import { ExplanationLanguage } from "@/lib/types/session";
-import { Speaker, SpeakerOff, Loader2 } from "lucide-react";
-import { useAudioPlayer } from "@/lib/hooks/use-audio-player";
-import { Speaker, SpeakerOff, Loader2 } from "lucide-react";
+import { Speaker, VolumeX } from "lucide-react";
 import { useAudioPlayer } from "@/lib/hooks/use-audio-player";
 import { Sparkles, ArrowLeft, AlertCircle } from "lucide-react";
 import Link from "next/link";
@@ -40,7 +37,7 @@ function PracticeRoom() {
   const [recordingBusy, setRecordingBusy] = useState(false);
   const [ttsLoading, setTTSLoading] = useState(false);
   const [ttsError, setTTSError] = useState<string | null>(null);
-  const { play, isPlaying } = useAudioPlayer();
+  const { playBlob, isPlaying, stop } = useAudioPlayer();
   const [evaluation, setEvaluation] = useState<import("@/lib/types/session-api").SessionEvaluation | null>(null);
   const [evaluationLoading, setEvaluationLoading] = useState(false);
   const [evaluationError, setEvaluationError] = useState<string | null>(null);
@@ -105,7 +102,8 @@ function PracticeRoom() {
   }, [requestedId, router, attempt]);
 
   useEffect(() => {
-    if (!session || session.status !== "completed") return;
+    const completedSessionId = session?.status === "completed" ? session.id : null;
+    if (!completedSessionId) return;
     let active = true;
     setEvaluationLoading(true);
     setEvaluationError(null);
@@ -114,13 +112,13 @@ function PracticeRoom() {
       try {
         let report;
         try {
-          report = await sessionsAPI.getEvaluation(session.id);
+          report = await sessionsAPI.getEvaluation(completedSessionId);
         } catch (error) {
           const status = error && typeof error === "object" && "status" in error
             ? (error as { status?: number }).status
             : undefined;
           if (status !== 404) throw error;
-          report = await sessionsAPI.evaluateSession(session.id);
+          report = await sessionsAPI.evaluateSession(completedSessionId);
         }
         if (active) setEvaluation(report);
       } catch (error) {
@@ -257,6 +255,8 @@ function PracticeRoom() {
 
   const currentQuestion = session.questions[session.current_question_index];
   const currentAnswer = session.responses.find((answer) => answer.question_id === currentQuestion.id);
+  const isSubmitted = Boolean(currentAnswer);
+  const isRecording = recordingBusy;
   const answeredIndexes = session.questions.flatMap((question, index) =>
     session.responses.some((answer) => answer.question_id === question.id) ? [index] : []);
   const controlsDisabled = isSaving || recordingBusy;
@@ -271,35 +271,9 @@ function PracticeRoom() {
           <Sparkles className="h-4 w-4" /><span className="capitalize">{session.mode} Practice</span>
         </div>
         <div className="flex items-center gap-2">
-          <span className="capitalize text-sm font-medium">
-            Lang:
-          </span>
-          {Object.values(ExplanationLanguage).map((lang) => (
-            <Button
-              key={lang}
-              variant={
-                lang === session.explanation_language
-                  ? "default"
-                  : "outline"
-              }
-              size="sm"
-              disabled={isSaving || recordingBusy || session.status !== "in_progress"}
-              onClick={() => {
-                if (session.status !== "in_progress" || isSaving || recordingBusy) return;
-                // PATCH the session with the new explanation language
-                sessionsAPI.updateSession(session.id, {
-                  explanation_language: lang,
-                }).then((updated) => {
-                  setSession(updated);
-                }).catch((error) => {
-                  setLoadError(getAPIErrorMessage(error));
-                });
-              }}
-            >
-              {lang}
-            </Button>
-          ))}
+          <span className="text-sm font-medium capitalize">Language: {session.explanation_language}</span>
         </div>
+      </div>
         <p className="text-sm text-muted-foreground">
         Questions are generated one at a time and saved to this session. Only submitted answers are saved.
         Keep this page URL to resume your saved session.
@@ -330,16 +304,20 @@ function PracticeRoom() {
                 variant="outline"
                 size="sm"
                 onClick={async () => {
+                  if (isPlaying) {
+                    stop();
+                    return;
+                  }
                   setTTSLoading(true);
                   setTTSError(null);
                   try {
                     const response = await sessionsAPI.postTTS({
-                      question_text: currentQuestion.text,
+                      text: currentQuestion.text,
                       language: session.explanation_language,
                     });
-                    play(response.url);
-                  } catch (err: any) {
-                    setTTSError(err?.detail || "Failed to synthesize speech");
+                    await playBlob(response);
+                  } catch (err) {
+                    setTTSError(getAPIErrorMessage(err));
                   } finally {
                     setTTSLoading(false);
                   }
@@ -349,8 +327,8 @@ function PracticeRoom() {
               >
                 <Speaker className="h-4 w-4" />
                 {isPlaying ? (
-                  <SpeakerOff className="h-4 w-4" />
-                ) : "Read Question"
+                  <VolumeX className="h-4 w-4" />
+                ) : "Read Question"}
               </Button>
               {ttsError && (
                 <p className="text-xs text-destructive">{ttsError}</p>

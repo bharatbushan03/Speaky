@@ -469,9 +469,11 @@ class PracticeSessionResponse(BaseModel):
 # =============================================================================
 
 class FeedbackRequest(BaseModel):
-    text: str
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    text: str = Field(..., min_length=1, max_length=20_000)
     session_type: SessionType
-    question: Optional[str] = None
+    question: Optional[str] = Field(None, max_length=5_000)
 
 
 class FeedbackResponse(BaseModel):
@@ -485,8 +487,10 @@ class FeedbackResponse(BaseModel):
 # =============================================================================
 
 class TranscriptionRequest(BaseModel):
-    audio_data: str  # Base64 encoded audio
-    language: str = "en-IN"
+    model_config = ConfigDict(extra="forbid")
+
+    audio_data: str = Field(..., min_length=1, max_length=8_000_000)  # Base64 encoded audio
+    language: str = Field(default="en-IN", min_length=2, max_length=20)
 
 
 class TranscriptionResponse(BaseModel):
@@ -496,6 +500,8 @@ class TranscriptionResponse(BaseModel):
 
 
 class TTSRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     text: str = Field(..., min_length=1, max_length=5000)
     language: str = "en-US"
 
@@ -536,6 +542,7 @@ class ErrorResponse(BaseModel):
 
 class ProgressSummary(BaseModel):
     total_sessions: int
+    total_questions: int = 0
     average_score: Optional[float] = None
     grammar_score: Optional[float] = None
     vocabulary_score: Optional[float] = None
@@ -557,6 +564,7 @@ class SessionHistoryItem(BaseModel):
     completed_at: Optional[str] = None
     overall_score: Optional[float] = None
     date: str
+    duration_minutes: Optional[int] = None
 
     class Config:
         from_attributes = True
@@ -592,17 +600,5 @@ class RecommendationItem(BaseModel):
 
     class Config:
         from_attributes = True
-
-
-# =============================================================================
-# Error response
-# =============================================================================
-
-class ErrorResponse(BaseModel):
-    detail: str
-    code: Optional[str] = None
-    errors: Optional[List[dict[str, Any]]] = None
-    request_id: Optional[str] = None
-
 
 SessionConfigWithDetails.model_rebuild()

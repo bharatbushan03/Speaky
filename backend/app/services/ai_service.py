@@ -7,8 +7,6 @@ unimplemented state explicit instead of returning fabricated feedback or text.
 
 from typing import Optional
 
-from app.core.config import settings
-from app.core.errors import APIError
 from app.models.schemas import (
     FeedbackResponse,
     SessionType,
@@ -17,13 +15,11 @@ from app.models.schemas import (
 from app.services.ai_interfaces import (
     TurnFeedbackAnalyzer,
     TranscriptionProvider,
-    UnconfiguredTranscriptionProvider,
     UnconfiguredTurnFeedbackAnalyzer,
-    UnconfiguredTTSProvider,
 )
 from app.services.transcription import get_transcription_provider
 from app.services.evaluation import get_tts_provider as _get_tts_provider_from_settings
-from app.services.evaluation import TTSProvider, UnconfiguredTTSProvider
+from app.services.evaluation import TTSProvider
 
 
 class AIService:
@@ -53,5 +49,5 @@ class AIService:
 
     async def synthesize_speech(
         self, text: str, language: str = "en-US"
-    ) -> str:
+    ) -> bytes:
         return await self.tts.synthesize(text, language)

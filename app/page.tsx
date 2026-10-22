@@ -19,7 +19,7 @@ import {
 
 export default function Home() {
   return (
-    <main className="min-h-screen">
+    <div className="min-h-screen">
       {/* Hero Section */}
       <section className="relative overflow-hidden bg-gradient-to-b from-background to-muted/20">
         <div className="container mx-auto px-4 py-20 md:py-28">
@@ -67,7 +67,7 @@ export default function Home() {
       </section>
 
       {/* Features Section */}
-      <section className="py-20 bg-background">
+      <section id="features" className="py-20 bg-background">
         <div className="container mx-auto px-4">
           <div className="text-center mb-12">
             <h2 className="text-3xl md:text-4xl font-bold mb-4">
@@ -335,6 +335,6 @@ export default function Home() {
           </Card>
         </div>
       </section>
-    </main>
+    </div>
   );
 }

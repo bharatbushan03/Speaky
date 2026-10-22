@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     APP_NAME: str = "SpeakReady AI"
     APP_VERSION: str = "0.1.0"
     DEBUG: bool = False
+    ENVIRONMENT: str = "development"
     LOG_LEVEL: str = "INFO"
     
     # API Settings
@@ -50,10 +51,16 @@ class Settings(BaseSettings):
     
     # Speech-to-Text Settings
     STT_PROVIDER: str = "openai"  # openai, google, azure
+    TTS_PROVIDER: str = "unconfigured"  # unconfigured, mock, openai
+    OPENAI_TTS_MODEL: str = "tts-1"
+    OPENAI_TTS_VOICE: str = "alloy"
     
     # Audio recording limits
     MAX_AUDIO_URL_LENGTH: int = 1000
     AUDIO_RETENTION_DAYS: int = 30  # Default retention period for transcribed audio
+    MAX_REQUEST_BODY_BYTES: int = Field(default=1_000_000, ge=16_384, le=10_000_000)
+    RATE_LIMIT_REQUESTS: int = Field(default=60, ge=1, le=10_000)
+    RATE_LIMIT_WINDOW_SECONDS: int = Field(default=60, ge=1, le=3_600)
     
     # Transcription language configuration
     STT_LANGUAGE_MAP: dict = {
@@ -80,6 +87,10 @@ class Settings(BaseSettings):
     @property
     def allowed_origins(self) -> List[str]:
         return [origin.strip() for origin in self.ALLOWED_ORIGINS.split(",") if origin.strip()]
+
+    @property
+    def is_production(self) -> bool:
+        return self.ENVIRONMENT.strip().lower() == "production"
 
 
 settings = Settings()

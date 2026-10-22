@@ -1,455 +1,312 @@
-# SpeakReady AI 🎯
+# SpeakReady AI
 
-India's first AI-powered English communication coach focused on interview and viva preparation.
+SpeakReady AI is an AI English communication coach for interview and academic
+viva preparation. Users configure an owned practice session, receive questions
+one at a time, answer by text or browser speech recognition, save/resume the
+session, and review persisted coaching feedback and progress.
 
-## 📋 Overview
+This repository is prepared for deployment, but no external hosting account,
+domain, Supabase project, AI credit, or production deployment is assumed. The
+production URLs are therefore configured by the operator after deployment and
+are not claimed here.
 
-SpeakReady AI helps users improve their English communication skills through:
-- **AI-Powered Feedback**: Instant analysis of grammar, fluency, vocabulary, and content
-- **Voice Practice**: Speech-to-text transcription for realistic practice
-- **Progress Tracking**: Monitor improvement with detailed analytics
-- **Multilingual Support**: Support for Indian languages (Hindi, Tamil, Telugu, etc.)
-- **Interview & Viva Prep**: Specialized coaching for job interviews and academic vivas
+## Features
 
-## 🏗️ Architecture
+- HR interview, technical interview, and academic viva practice modes.
+- Supabase Auth bearer-token authentication and user-scoped session access.
+- Atomic PostgreSQL RPCs for session creation, question persistence, answer
+  upserts, lifecycle transitions, completion, and evaluation persistence.
+- Mock question/evaluation adapters for offline development and OpenAI adapters
+  for documented chat-completion, transcription, and TTS contracts.
+- Browser SpeechRecognition voice input with an explicit unsupported-browser
+  fallback; transcripts are saved as answers only after submission.
+- Session history, filters, score trends, reports, streaks, and progress data.
+- Bounded request payloads, CORS allowlisting, request IDs, in-process burst
+  protection, dependency health checks, and production container hardening.
+
+## Architecture
+
+```text
+Next.js 14 App Router / TypeScript / Tailwind
+        │ HTTPS + Supabase Auth access token
+        ▼
+FastAPI / Pydantic / provider adapters
+        │ user-scoped PostgREST + controlled security-definer RPCs
+        ▼
+Supabase PostgreSQL + Supabase Auth + RLS
+```
+
+### Technology stack
+
+- Frontend: Next.js 14, React 18, TypeScript, Tailwind CSS, Radix primitives,
+  Axios, Supabase browser client.
+- Backend: Python 3.11, FastAPI, Pydantic v2, Uvicorn, httpx, Supabase
+  PostgREST/Auth integration.
+- Data/auth: Supabase PostgreSQL, Supabase Auth, RLS, numbered SQL migrations.
+- AI: deterministic `mock` adapter or backend-only OpenAI adapter. Giani is
+  fail-closed because its public developer contract was not verifiable in this
+  repository; do not guess an endpoint or request format.
+
+## Prerequisites
+
+- Node.js version in `.nvmrc` (20.11.1).
+- Python version in `.python-version` (3.11.9).
+- npm and a Python virtual environment.
+- A Supabase project for authenticated sessions and persistence.
+- An OpenAI account/key only if `AI_PROVIDER=openai` or OpenAI STT/TTS is used.
+- `psql` or Docker Desktop for applying migrations.
+
+## Local setup
 
 ### Frontend
-- **Framework**: Next.js 14 with App Router
-- **Language**: TypeScript
-- **Styling**: Tailwind CSS
-- **UI Components**: shadcn/ui with Radix UI primitives
-- **State Management**: React hooks
-- **API Client**: Axios with interceptors
-
-### Backend
-- **Framework**: FastAPI (Python)
-- **Database**: Supabase PostgreSQL
-- **Authentication**: Supabase Auth bearer tokens
-- **Session authorization**: user-scoped PostgREST requests plus PostgreSQL RLS
-- **AI Integration**: backend-only, one-question-at-a-time generation with validated provider adapters; answer evaluation is not implemented
-- **Speech-to-Text**: browser transcription remains separate from persisted voice transcripts
-
-### Database
-- **Provider**: Supabase PostgreSQL
-- **Features**: Row Level Security (RLS), triggers, indexes
-- **Legacy tables**: users, practice_sessions, user_progress, feedback_items
-- **Session tables**: sessions, session_questions, session_responses
-
-## 🚀 Getting Started
-
-### Prerequisites
-
-- **Node.js**: 20.11.1 (see `.nvmrc`)
-- **Python**: 3.11.9 (see `.python-version`)
-- **npm** or **yarn**: Latest version
-- **Supabase Account**: [Sign up here](https://supabase.com)
-- **AI Provider Account**: OpenAI (optional); local development uses the deterministic mock adapter. Giani AI is not enabled because its public generation API could not be verified.
-
-### 1. Clone the Repository
 
 ```bash
-git clone <repository-url>
-cd speakready-ai
-```
-
-### 2. Frontend Setup
-
-#### Install Dependencies
-
-```bash
-npm install
-```
-
-#### Configure Environment Variables
-
-Copy the example environment file:
-
-```bash
+npm ci
 cp .env.example .env.local
-```
-
-Edit `.env.local` and add your credentials:
-
-```env
-NEXT_PUBLIC_API_URL=http://localhost:8000
-NEXT_PUBLIC_SUPABASE_URL=your_supabase_project_url
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
-```
-
-#### Run Development Server
-
-```bash
 npm run dev
 ```
 
-The frontend will be available at [http://localhost:3000](http://localhost:3000)
-
-### 3. Backend Setup
-
-#### Create Virtual Environment
-
-```bash
-cd backend
-python -m venv venv
-
-# Windows
-venv\Scripts\activate
-
-# macOS/Linux
-source venv/bin/activate
-```
-
-#### Install Dependencies
-
-```bash
-pip install -r requirements.txt
-```
-
-#### Configure Environment Variables
-
-Copy the example environment file:
-
-```bash
-cp .env.example .env
-```
-
-Edit `.env` and add your credentials:
-
-```env
-# Database (Supabase)
-SUPABASE_URL=your_supabase_project_url
-SUPABASE_KEY=your_supabase_service_role_key # backend-only legacy/admin operations
-SUPABASE_ANON_KEY=your_supabase_anon_key     # Auth validation and user-scoped API calls
-DATABASE_URL=your_postgres_connection_string
-
-# AI Provider (choose one)
-AI_PROVIDER=mock    # mock or openai
-AI_REQUEST_TIMEOUT_SECONDS=20
-OPENAI_API_KEY=your_openai_api_key
-OPENAI_MODEL=gpt-3.5-turbo
-
-# Security
-SECRET_KEY=generate_a_secure_random_key_min_32_chars
-LOG_LEVEL=INFO
-ALLOWED_ORIGINS=http://localhost:3000,http://localhost:3001
-```
-
-**Note**: To generate a secure secret key, run:
-```bash
-python -c "import secrets; print(secrets.token_urlsafe(32))"
-```
-
-#### Run Development Server
-
-```bash
-python -m uvicorn main:app --reload
-```
-
-The backend API will be available at [http://localhost:8000](http://localhost:8000)
-
-API documentation: [http://localhost:8000/docs](http://localhost:8000/docs)
-
-### 4. Database Setup
-
-#### Create Supabase Project
-
-1. Go to [supabase.com](https://supabase.com) and create a new project
-2. Wait for the project to be ready (2-3 minutes)
-3. Note your project URL and keys from Settings → API
-
-#### Run Database Migrations
-
-1. Configure `DATABASE_URL` outside the repository (secret manager or shell).
-2. Install the PostgreSQL `psql` client in the documented environment.
-3. Apply `backend/app/db/migrations/001_initial_schema.sql`, then
-   `backend/app/db/migrations/002_session_management.sql`, then
-   `backend/app/db/migrations/003_ai_question_generation.sql` with
-   `-v ON_ERROR_STOP=1`.
-4. Confirm the Auth users and RLS/RPC checks described in
-   `backend/app/db/README.md`.
-
-The migrations have been applied to the configured Supabase database using a
-disposable Docker PostgreSQL client with host networking. The local workspace
-does not have a native `psql` executable; the Docker alternative is documented
-in `backend/app/db/README.md`. Never put a service-role key in frontend
-variables or browser code.
-
-## 📁 Project Structure
-
-```
-speakready-ai/
-├── app/                      # Next.js App Router pages
-│   ├── layout.tsx           # Root layout with providers
-│   ├── page.tsx             # Landing page
-│   ├── dashboard/           # User dashboard
-│   └── practice/            # Practice sessions
-├── components/              # React components
-│   └── ui/                  # shadcn/ui components
-├── lib/                     # Utilities and libraries
-│   ├── api/                 # API client modules
-│   ├── api-client.ts        # Axios configuration
-│   ├── error-handler.ts     # Error handling
-│   ├── supabase.ts          # Supabase client
-│   └── utils.ts             # Utility functions
-├── hooks/                   # Custom React hooks
-├── backend/                 # FastAPI backend
-│   ├── main.py             # Application entry point
-│   ├── app/
-│   │   ├── api/            # API routes and endpoints
-│   │   ├── core/           # Configuration and security
-│   │   ├── db/             # Database and migrations
-│   │   ├── models/         # Pydantic schemas
-│   │   └── services/       # Business logic
-│   └── requirements.txt    # Python dependencies
-├── .env.example            # Frontend env template
-├── backend/.env.example    # Backend env template
-└── README.md              # This file
-```
-
-## 🔧 Configuration
-
-### AI Provider Configuration
-
-The backend is designed to work with multiple AI providers. To use a specific provider:
-
-#### OpenAI (optional)
-
-```env
-AI_PROVIDER=openai
-OPENAI_API_KEY=your_openai_api_key
-OPENAI_MODEL=gpt-3.5-turbo
-```
-
-When selected, the backend uses OpenAI's documented chat-completions JSON
-contract at `https://api.openai.com/v1/chat/completions`; the key never leaves
-the backend.
-
-#### Giani AI (not currently available)
-
-The public Giani.ai pages do not publish a verifiable text-generation endpoint,
-authentication scheme, request shape, response shape, or model identifier.
-The official public sources checked were [giani.ai](https://www.giani.ai/) and
-its [support page](https://www.giani.ai/support); neither provides a developer
-API contract.
-SpeakReady therefore does **not** guess an endpoint or send credentials. Use
-the explicit mock adapter for offline development, or OpenAI with its official
-API key until Giani supplies an official developer specification:
-
-```env
-AI_PROVIDER=giani  # fails closed with a clear configuration error
-GIANI_API_KEY=your_giani_api_key
-GIANI_API_URL=
-GIANI_MODEL=giani-model-name
-```
-
-### Speech-to-Text Configuration
-
-```env
-STT_PROVIDER=openai  # or google, azure
-```
-
-## 🧪 Testing
-
-### Frontend
-
-```bash
-npm run lint
-npm run type-check
-```
+The frontend runs at `http://localhost:3000` by default. `.env.local` must
+contain the public API URL and public Supabase URL/anon key. It must not contain
+an OpenAI key, service-role key, database password, or `SECRET_KEY`.
 
 ### Backend
 
 ```bash
-# Run offline API/session tests from backend/
+cd backend
+python -m venv .venv
+# Windows: .venv\Scripts\activate
+# macOS/Linux: source .venv/bin/activate
+python -m pip install --requirement requirements.lock
+cp .env.example .env
+python -m uvicorn main:app --reload --host 127.0.0.1 --port 8000
+```
+
+The API runs at `http://localhost:8000`. Swagger is available at
+`http://localhost:8000/docs` and ReDoc at `/redoc`.
+
+For offline development, set `AI_PROVIDER=mock`, `STT_PROVIDER=mock`, and
+`TTS_PROVIDER=unconfigured`. Mock question/evaluation generation does not call a
+provider. Voice input requires a browser implementing SpeechRecognition.
+
+## Environment variables
+
+### Frontend (`.env.local` / Vercel)
+
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `NEXT_PUBLIC_API_URL` | Yes | Public FastAPI base URL, for example `https://api.example.com`. |
+| `NEXT_PUBLIC_SUPABASE_URL` | Yes | Supabase project URL. |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Yes | Public Supabase anon/publishable key. |
+
+### Backend (`backend/.env` / Render secret environment)
+
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `ENVIRONMENT` | Production | `development` or `production`. |
+| `DEBUG` | Yes | Must be `False` in production. |
+| `LOG_LEVEL` | Yes | `INFO`, `WARNING`, or another supported logging level. |
+| `SUPABASE_URL` | Yes | Supabase project URL. |
+| `SUPABASE_ANON_KEY` | Yes | Used for Auth validation and user-scoped PostgREST. |
+| `SUPABASE_KEY` | Optional | Backend-only service role for legacy/admin operations; current user flow does not need it. Never expose it. |
+| `DATABASE_URL` | Migration only | PostgreSQL connection string used by the migration operator. |
+| `SECRET_KEY` | Production | Random backend secret, at least 32 characters; not used as a Supabase user token. |
+| `ALLOWED_ORIGINS` | Yes | Comma-separated exact frontend origins. Production origins must use HTTPS. |
+| `AI_PROVIDER` | Yes | `mock`, `openai`, or fail-closed `giani`. |
+| `AI_REQUEST_TIMEOUT_SECONDS` | Yes | Provider timeout, bounded to 1–120 seconds. |
+| `OPENAI_API_KEY` | If OpenAI | Backend-only OpenAI credential. |
+| `OPENAI_MODEL` | If OpenAI | Chat model used for questions/evaluation. |
+| `OPENAI_TTS_MODEL` / `OPENAI_TTS_VOICE` | If OpenAI TTS | TTS model and voice. |
+| `GIANI_API_KEY`, `GIANI_API_URL`, `GIANI_MODEL` | If verified later | Placeholders only; currently fails closed. |
+| `STT_PROVIDER` | Yes | `openai`, `google`, `azure`, or `mock`. Google/Azure adapters are not implemented. |
+| `TTS_PROVIDER` | Yes | `openai`, `mock`, or `unconfigured`. |
+| `MAX_REQUEST_BODY_BYTES` | Optional | Default 1,000,000 bytes. |
+| `RATE_LIMIT_REQUESTS` / `RATE_LIMIT_WINDOW_SECONDS` | Optional | Per-process burst guard; use an edge/WAF limiter for multiple replicas. |
+
+The canonical variable lists are `.env.example` and `backend/.env.example`.
+Never commit `.env`, `.env.local`, credentials, or provider payloads.
+
+## Database migrations
+
+Apply migrations in order to a designated Supabase production/test database.
+The application never runs migrations automatically.
+
+```bash
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/app/db/migrations/001_initial_schema.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/app/db/migrations/002_session_management.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/app/db/migrations/003_ai_question_generation.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/app/db/migrations/004_answer_evaluation.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/app/db/migrations/005_lock_down_legacy_tables.sql
+```
+
+On Windows without native `psql`, use the Docker commands in
+`backend/app/db/README.md`. Stop on the first error and record successful
+migrations in the deployment runbook. Do not re-run a migration blindly on an
+existing database; inspect schema/history first.
+
+Migration 005 preserves historical custom-account rows while enabling RLS and
+revoking `anon`/`authenticated` table access. The current application uses
+Supabase Auth, not the legacy `password_hash` account flow. Verify RLS, grants,
+RPC execution, and two-user isolation before production cutover. Rollback is a
+forward migration or a tested database restore; do not delete tables or data as
+a rollback shortcut.
+
+## API overview
+
+All session, progress, feedback, transcription, and TTS routes require:
+
+```text
+Authorization: Bearer <Supabase Auth access token>
+```
+
+Public health endpoints:
+
+- `GET /health` — liveness.
+- `GET /api/v1/health/` — API liveness.
+- `GET /api/v1/health/ready` — Supabase reachability, configuration, and AI readiness; returns 503 when degraded.
+
+Session endpoints:
+
+- `POST /api/v1/sessions/`
+- `GET /api/v1/sessions/` and `GET /api/v1/sessions/{id}`
+- `POST /api/v1/sessions/{id}/questions/generate`
+- `POST /api/v1/sessions/{id}/start`
+- `POST /api/v1/sessions/{id}/responses`
+- `POST /api/v1/sessions/{id}/complete`
+- `GET /api/v1/sessions/{id}/evaluation` and `POST /api/v1/sessions/{id}/evaluate`
+
+Progress endpoints:
+
+- `GET /api/v1/progress/summary`
+- `GET /api/v1/progress/history` with mode/topic/status/date/limit/offset filters
+- `GET /api/v1/progress/trends`
+- `GET /api/v1/progress/recommendations`
+- `GET /api/v1/progress/sessions/{id}/report`
+
+AI boundaries:
+
+- `POST /api/v1/feedback/analyze`
+- `POST /api/v1/feedback/transcribe`
+- `POST /api/v1/feedback/tts` returns audio bytes when a TTS provider is configured.
+
+FastAPI generates the complete OpenAPI contract at `/openapi.json`.
+
+## Checks and testing
+
+From the repository root:
+
+```bash
+npm ci
+npm run type-check
+npm run lint
+npm run build
+```
+
+From `backend/`:
+
+```bash
 python -m unittest discover -s tests -v
-
-# Check code formatting
-black --check .
+python -m compileall -q app main.py
+python -m pip check
 ```
 
-From the repository root, `make test` runs the backend tests and frontend
-type-check. The root `Dockerfile` builds the FastAPI image; run the Next.js
-frontend separately with the pinned Node version in `.nvmrc`.
+The offline tests cover session schema/authorization boundaries and question
+provider adapters. They do not prove a real Supabase database, RLS isolation,
+AI credit, microphone permission, or a deployed browser flow. Run the two-user
+database checks in `backend/app/db/README.md` against disposable fixtures before
+production.
 
-### Backend container
+## Deployment
 
-```bash
-docker build -t speakready-ai-backend .
-docker run --rm -p 8000:8000 --env-file backend/.env speakready-ai-backend
+### 1. Supabase
+
+1. Create/select the production project and configure Auth email/password and
+   allowed redirect/site URLs for the final frontend URL.
+2. Apply migrations 001–005 in order with a secure database connection.
+3. Verify the session/evaluation tables, RLS, RPC grants, and Auth user isolation.
+4. Keep the database password, service-role key, and migration connection out of
+   frontend settings and source control.
+
+### 2. Backend on Render (or another Python host)
+
+`render.yaml` provides a starting service definition. Set all `sync: false`
+variables in the provider dashboard, especially `SUPABASE_ANON_KEY`,
+`SUPABASE_URL`, `ALLOWED_ORIGINS`, and any AI key. Use:
+
+```text
+Build: pip install --requirement requirements.lock
+Start: uvicorn main:app --host 0.0.0.0 --port $PORT
+Health: /health
 ```
 
-Provide `backend/.env` through a secret manager or local ignored file; never
-build service-role credentials into an image or pass them as `NEXT_PUBLIC_*`
-variables.
+Set `ENVIRONMENT=production`, `DEBUG=False`, a random `SECRET_KEY`, and the
+final HTTPS frontend origin. Run a smoke check against `/health` and
+`/api/v1/health/ready` before pointing the browser at the service.
 
-## 📚 API Documentation
+### 3. Frontend on Vercel
 
-Once the backend is running, visit:
-- **Swagger UI**: http://localhost:8000/docs
-- **ReDoc**: http://localhost:8000/redoc
+`vercel.json` pins the reproducible commands. Import the repository, select the
+Next.js framework, and set:
 
-### Key Endpoints
-
-#### Health Check
-```
-GET /api/v1/health/
-GET /api/v1/health/ready
-```
-
-#### Users
-```
-POST /api/v1/users/          # Create user
-GET /api/v1/users/{user_id}  # Get user
+```text
+Install: npm ci
+Build: npm run build
+NEXT_PUBLIC_API_URL=https://<backend-host>
+NEXT_PUBLIC_SUPABASE_URL=https://<project>.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=<public-anon-key>
 ```
 
-#### Practice Sessions
-```
-POST /api/v1/sessions/                     # Create owned session
-GET /api/v1/sessions/                      # List the authenticated user's sessions
-GET /api/v1/sessions/{session_id}           # Get owned session and details
-PATCH /api/v1/sessions/{session_id}         # Update state/navigation while allowed
-POST /api/v1/sessions/{session_id}/questions/generate # Generate and save the next question
-POST /api/v1/sessions/{session_id}/start # Start after the first question is ready
-PUT /api/v1/sessions/{session_id}/questions # Legacy/static question-set endpoint
-POST /api/v1/sessions/{session_id}/responses # Save text/voice transcript answer
-POST /api/v1/sessions/{session_id}/complete # Complete after every answer is saved
-```
+After deployment, add the exact Vercel URL to the backend `ALLOWED_ORIGINS` and
+Supabase Auth site/redirect URL settings. Re-deploy the backend if its origin
+allowlist changes.
 
-Session routes require a Supabase Auth `Authorization: Bearer <access-token>`
-header. The server derives ownership from the token; there is no `user_id`
-query parameter for these routes. Session mutations are checked again by the
-`manage_practice_session` PostgreSQL function, and RLS protects direct reads.
-Question generation uses the stored session configuration and previous answers,
-one question per request. Generated questions are persisted with their sequence
-under an atomic session lock; private evaluation criteria are stored separately
-and are not returned in the practice-room response. Answer evaluation is not
-implemented.
+### 4. Cutover verification
 
-#### AI Feedback
-```
-POST /api/v1/feedback/analyze      # Analyze text
-POST /api/v1/feedback/transcribe   # Transcribe audio
-```
+Use a disposable Auth account to test registration/login, session creation,
+question generation, text answer save, voice/browser transcription where
+supported, completion, evaluation, history/report, analytics, and logout. Use a
+second account to verify it cannot read or mutate the first account's session.
+Do not claim a production URL or successful deployment until those provider
+dashboard and browser checks have actually succeeded.
 
-## 🔐 Security
+## Troubleshooting
 
-- **API Keys**: Never commit API keys to version control
-- **Environment Files**: `.env` files are git-ignored
-- **Password Hashing**: bcrypt with salt
-- **Auth tokens**: Supabase Auth bearer tokens are validated server-side
-- **Service-role credentials**: backend-only; never expose them to the browser
-- **RLS Policies**: Row Level Security in Supabase
-- **CORS**: Configured for frontend origins only
+- **401/authentication required:** confirm Supabase Auth has a session, the
+  frontend API URL is correct, and the backend has the anon key. Do not use the
+  service-role key as a browser bearer token.
+- **503 authentication/database unavailable:** check Supabase URL, anon key,
+  project status, CORS origin, and `/api/v1/health/ready`.
+- **Questions/evaluation unavailable:** check `AI_PROVIDER`, provider key/model,
+  credit/rate limits, and backend logs. `mock` is the offline fallback.
+- **TTS unavailable:** configure `TTS_PROVIDER=openai` and the OpenAI key, or
+  leave the feature disabled. The endpoint no longer returns fabricated URLs.
+- **Voice input unavailable:** browser SpeechRecognition support and microphone
+  permission are required. Use text mode if the browser does not support it.
+- **CORS errors:** add the exact scheme/host/port of the frontend to
+  `ALLOWED_ORIGINS`; production origins must be HTTPS.
+- **Migration errors:** stop, save the database error, inspect which migration
+  completed, and apply only the next compatible migration after review.
 
-## 🚢 Deployment
+## Important files
 
-### Frontend (Vercel)
+- `app/` and `components/`: Next.js pages and UI.
+- `lib/api-client.ts`: authenticated Axios boundary and safe error mapping.
+- `backend/main.py`: FastAPI app, request safety, CORS, and health routes.
+- `backend/app/services/`: session, AI, transcription, and evaluation logic.
+- `backend/app/db/migrations/`: ordered schema/RLS/RPC changes.
+- `DEPLOYMENT.md`: concise release checklist and manual setup boundary.
 
-```bash
-# Install Vercel CLI
-npm i -g vercel
+## Known limitations
 
-# Deploy
-vercel
-```
+- No deployment was performed from this workspace; hosting permissions and
+  production credentials are manual setup requirements.
+- Real Supabase/RLS, microphone, and paid AI-provider checks require external
+  services and were not replaced by offline tests.
+- Google/Azure STT adapters and the Giani provider remain explicitly
+  unconfigured rather than guessing undocumented integrations.
+- The in-process request limiter is not a substitute for an edge/WAF limiter
+  when running multiple workers or replicas.
 
-Add environment variables in Vercel dashboard.
-
-### Backend (Railway, Render, or AWS)
-
-1. Set up environment variables
-2. Configure build command: `pip install -r requirements.txt`
-3. Configure start command: `uvicorn main:app --host 0.0.0.0 --port $PORT`
-
-### Database (Supabase)
-
-Already hosted! Just ensure your production environment variables point to your Supabase project.
-
-## 🛠️ Development Workflow
-
-1. **Feature Development**: Create a feature branch
-2. **Code Changes**: Make changes in frontend and/or backend
-3. **Testing**: Test locally with dev servers
-4. **Commit**: Use clear commit messages
-5. **Pull Request**: Create PR for review
-
-## 🐛 Troubleshooting
-
-### Frontend Issues
-
-**Port already in use:**
-```bash
-# Change port
-PORT=3001 npm run dev
-```
-
-**Module not found:**
-```bash
-# Clear cache and reinstall
-rm -rf node_modules .next
-npm install
-```
-
-### Backend Issues
-
-**Database connection failed:**
-- Check Supabase credentials in `.env`
-- Verify Supabase project is active
-- Ensure `SUPABASE_ANON_KEY` is configured for Auth and user-scoped session requests
-- Keep `SUPABASE_KEY` service-role credentials backend-only
-
-**AI provider errors:**
-- Verify API key is correct
-- Check if you have API credits
-- Review provider-specific error messages
-
-### Database Issues
-
-**Tables not created:**
-- Apply numbered migrations `001_initial_schema.sql` then `002_session_management.sql`
-- Check for SQL errors in the editor
-- Verify migrations were applied in order
-
-## 📖 Additional Resources
-
-- [Next.js Documentation](https://nextjs.org/docs)
-- [FastAPI Documentation](https://fastapi.tiangolo.com)
-- [Supabase Documentation](https://supabase.com/docs)
-- [Tailwind CSS](https://tailwindcss.com/docs)
-- [shadcn/ui](https://ui.shadcn.com)
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Write tests if applicable
-5. Submit a pull request
-
-## 📝 License
+## License
 
 This project is proprietary and confidential.
-
-## 👥 Team
-
-Built with ❤️ for India's English learners.
-
-## 🔄 Roadmap
-
-- [ ] User authentication and authorization
-- [ ] Real-time voice recording and analysis
-- [ ] Multilingual UI support
-- [ ] Mobile app (React Native)
-- [ ] Giani AI integration
-- [ ] Advanced analytics dashboard
-- [ ] Social features (share progress)
-- [ ] Subscription plans
-
-## 📞 Support
-
-For support, email support@speakready.ai or open an issue in the repository.
-
----
-
-**Version**: 0.1.0  
-**Last Updated**: October 19, 2024

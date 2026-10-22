@@ -48,6 +48,15 @@ export function Navbar() {
             >
               Practice
             </Link>
+            <Link
+              href="/session-history"
+              className={cn(
+                "text-sm font-medium transition-colors hover:text-primary",
+                isActive("/session-history") ? "text-foreground" : "text-muted-foreground"
+              )}
+            >
+              History
+            </Link>
           </div>
 
           <div className="flex items-center gap-4">
@@ -58,6 +67,12 @@ export function Navbar() {
               <Link href="/practice">Start Free</Link>
             </Button>
           </div>
+        </div>
+        <div className="flex items-center gap-5 overflow-x-auto pb-3 text-sm md:hidden">
+          <Link href="/" className="whitespace-nowrap text-muted-foreground hover:text-foreground">Home</Link>
+          <Link href="/dashboard" className="whitespace-nowrap text-muted-foreground hover:text-foreground">Dashboard</Link>
+          <Link href="/practice" className="whitespace-nowrap text-muted-foreground hover:text-foreground">Practice</Link>
+          <Link href="/session-history" className="whitespace-nowrap text-muted-foreground hover:text-foreground">History</Link>
         </div>
       </div>
     </nav>

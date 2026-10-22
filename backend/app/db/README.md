@@ -3,7 +3,8 @@
 SpeakReady AI uses Supabase PostgreSQL. Apply numbered migrations in order from
 the repository root. Migration 002 adds Auth-owned, multi-question sessions;
 migration 003 adds one-at-a-time generated-question persistence and private
-evaluation criteria. Legacy tables and behavior remain unchanged.
+evaluation criteria, migration 004 adds persisted evaluations, and migration 005
+locks down the historical custom-account tables. Legacy rows are preserved.
 
 ## Apply to a clean Supabase project
 
@@ -22,6 +23,8 @@ repository root on Linux/macOS:
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/app/db/migrations/001_initial_schema.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/app/db/migrations/002_session_management.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/app/db/migrations/003_ai_question_generation.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/app/db/migrations/004_answer_evaluation.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/app/db/migrations/005_lock_down_legacy_tables.sql
 ```
 
 PowerShell equivalent:
@@ -33,6 +36,12 @@ if ($LASTEXITCODE -eq 0) {
 }
 if ($LASTEXITCODE -eq 0) {
     psql "$env:DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/app/db/migrations/003_ai_question_generation.sql
+}
+if ($LASTEXITCODE -eq 0) {
+    psql "$env:DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/app/db/migrations/004_answer_evaluation.sql
+}
+if ($LASTEXITCODE -eq 0) {
+    psql "$env:DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/app/db/migrations/005_lock_down_legacy_tables.sql
 }
 ```
 
@@ -49,9 +58,19 @@ if ($LASTEXITCODE -eq 0) {
       psql "$env:DATABASE_URL" -v ON_ERROR_STOP=1 `
       -f /workspace/backend/app/db/migrations/002_session_management.sql
   if ($LASTEXITCODE -eq 0) {
-    docker run --rm --network host -v "${PWD}:/workspace:ro" postgres:16-alpine `
-      psql "$env:DATABASE_URL" -v ON_ERROR_STOP=1 `
-      -f /workspace/backend/app/db/migrations/003_ai_question_generation.sql
+      docker run --rm --network host -v "${PWD}:/workspace:ro" postgres:16-alpine `
+        psql "$env:DATABASE_URL" -v ON_ERROR_STOP=1 `
+        -f /workspace/backend/app/db/migrations/003_ai_question_generation.sql
+    if ($LASTEXITCODE -eq 0) {
+      docker run --rm --network host -v "${PWD}:/workspace:ro" postgres:16-alpine `
+        psql "$env:DATABASE_URL" -v ON_ERROR_STOP=1 `
+        -f /workspace/backend/app/db/migrations/004_answer_evaluation.sql
+      if ($LASTEXITCODE -eq 0) {
+        docker run --rm --network host -v "${PWD}:/workspace:ro" postgres:16-alpine `
+          psql "$env:DATABASE_URL" -v ON_ERROR_STOP=1 `
+          -f /workspace/backend/app/db/migrations/005_lock_down_legacy_tables.sql
+      }
+    }
   }
 }
 ```
@@ -300,7 +319,10 @@ infrastructure failures are also outside this business-error mapping.
   Do not use a service-role credential as the session user's identity. Backend
   session RPCs must preserve the verified user's Supabase Auth context.
 
-This migration does not retrofit the legacy tables' privileges or RLS.
+Migration 005 enables RLS and revokes browser-role privileges on the legacy
+tables. It deliberately creates no permissive policies because the application
+no longer exposes custom-password account routes. Trusted database owners and
+the Supabase service role remain administrative principals.
 
 The Python runtime is pinned by the repository `.python-version`; backend
 dependencies are pinned in `requirements.txt` and the reproducibility lockfile

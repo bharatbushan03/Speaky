@@ -1,33 +1,23 @@
 import logging
-from typing import List, Optional, Dict, Any
-from datetime import datetime, timedelta
+from typing import List, Optional
+from datetime import date, datetime, timedelta
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
-from pydantic import ValidationError
-
-from app.core.errors import APIError
 from app.core.security import AuthenticatedUser, get_current_user
 from app.db.database import get_user_database
 from app.models.schemas import (
     SessionEvaluation,
-    SessionConfigResponse,
-    EvaluationDraft,
-    DimensionScore,
-    EvaluationDimension,
     ProgressSummary,
     SessionHistoryItem,
-    SessionHistoryFilters,
     TrendPoint,
     RecommendationItem,
 )
 from app.services.session_service import SessionService
-from app.services.evaluation import normalize_evaluation, parse_evaluation_weights
-from app.services.evaluation import _has_reliable_fluency_data
-from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/progress", tags=["progress"])
+router = APIRouter(tags=["progress"])
 
 
 def get_progress_service(
@@ -61,6 +51,8 @@ async def get_session_history(
     mode: Optional[str] = Query(None, description="Filter by practice mode (hr, technical, viva)"),
     topic: Optional[str] = Query(None, description="Filter by topic focus"),
     status: Optional[str] = Query(None, description="Filter by completion status (completed, in_progress, created, cancelled)"),
+    start_date: Optional[date] = Query(None, description="Only sessions created on or after this date"),
+    end_date: Optional[date] = Query(None, description="Only sessions created on or before this date"),
     limit: int = Query(50, ge=1, le=200, description="Maximum number of sessions to return"),
     offset: int = Query(0, ge=0, description="Number of sessions to skip for pagination"),
     service: SessionService = Depends(get_progress_service),
@@ -79,6 +71,14 @@ async def get_session_history(
         query_params["topic_focus"] = f"eq.{topic}"
     if status:
         query_params["status"] = f"eq.{status}"
+    date_filters = []
+    if start_date:
+        date_filters.append(f"gte.{start_date.isoformat()}T00:00:00Z")
+    if end_date:
+        # Use an exclusive upper bound so the full end date is included.
+        date_filters.append(f"lt.{(end_date + timedelta(days=1)).isoformat()}T00:00:00Z")
+    if date_filters:
+        query_params["created_at"] = ",".join(date_filters)
 
     rows = await service.db.request(
         "GET",
@@ -86,7 +86,34 @@ async def get_session_history(
         params=query_params,
     )
 
-    return [SessionHistoryItem.model_validate(row) for row in rows]
+    history: list[SessionHistoryItem] = []
+    for row in rows:
+        evaluation_rows = row.get("session_evaluations") or []
+        evaluation = evaluation_rows[0] if isinstance(evaluation_rows, list) and evaluation_rows else {}
+        created_at = row.get("created_at")
+        started_at = row.get("started_at")
+        completed_at = row.get("completed_at")
+        duration_minutes = None
+        if started_at and completed_at:
+            try:
+                start = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
+                end = datetime.fromisoformat(completed_at.replace("Z", "+00:00"))
+                duration_minutes = max(0, round((end - start).total_seconds() / 60))
+            except ValueError:
+                logger.warning("Invalid session timestamps returned for history row")
+        history.append(SessionHistoryItem(
+            session_id=str(row.get("id")),
+            mode=row.get("mode", "unknown"),
+            topic=row.get("topic_focus"),
+            status=row.get("status", "unknown"),
+            question_count=int(row.get("question_count", 0)),
+            started_at=started_at,
+            completed_at=completed_at,
+            overall_score=evaluation.get("overall_score"),
+            date=str(created_at)[:10] if created_at else "",
+            duration_minutes=duration_minutes,
+        ))
+    return history
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -95,7 +122,7 @@ async def get_session_history(
 
 @router.get("/sessions/{session_id}/report", response_model=SessionEvaluation)
 async def get_session_report(
-    session_id: str,
+    session_id: UUID,
     service: SessionService = Depends(get_progress_service),
 ):
     """Get the detailed evaluation report for a specific session."""
@@ -118,6 +145,7 @@ async def get_performance_trends(
             "select": "*,session_evaluations(overall_score, dimensions, created_at)",
             "status": "eq.completed",
             "order": "created_at",
+            "limit": 100,
         },
     )
 
@@ -140,6 +168,7 @@ async def get_personalized_recommendations(
             "select": "*,session_evaluations(overall_score, dimensions, answer_evaluations(*,response_evaluations(*,corrections,explanations,strengths,improvements,retry_recommendations))),responses(*,question_id,answer_text)",
             "status": "eq.completed",
             "order": "created_at.desc",
+            "limit": 50,
         },
     )
 

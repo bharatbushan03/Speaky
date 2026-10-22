@@ -25,7 +25,10 @@ export function getAPIErrorMessage(error: unknown): string {
 
 // Create axios instance with default config
 const createAPIClient = (): AxiosInstance => {
-  const apiURL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+  const apiURL = process.env.NEXT_PUBLIC_API_URL;
+  if (!apiURL) {
+    throw new Error("NEXT_PUBLIC_API_URL is not configured. Set the FastAPI URL before starting the frontend.");
+  }
 
   const client = axios.create({
     baseURL: apiURL,

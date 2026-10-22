@@ -9,7 +9,9 @@ export function getSupabaseConfigurationError(): string | null {
     return "Sign-in is not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY, then restart the frontend.";
   }
   try {
-    if (!["http:", "https:"].includes(new URL(url).protocol)) throw new Error();
+    const parsed = new URL(url);
+    const isLocalDevelopment = parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1";
+    if (parsed.protocol !== "https:" && !(process.env.NODE_ENV !== "production" && isLocalDevelopment)) throw new Error();
   } catch {
     return "NEXT_PUBLIC_SUPABASE_URL must be a valid Supabase project URL. Update it and restart the frontend.";
   }

@@ -8,7 +8,7 @@ derived from a transcript.
 
 import json
 import logging
-from typing import Optional, Protocol
+from typing import Any, Optional, Protocol
 
 import httpx
 from pydantic import ValidationError
@@ -26,6 +26,7 @@ from app.models.schemas import (
 )
 from app.services.ai_interfaces import SessionEvaluator, UnconfiguredSessionEvaluator
 from app.services.question_generation import OPENAI_CHAT_COMPLETIONS_URL
+from app.services.giani_service import get_giani_session_evaluator
 
 logger = logging.getLogger(__name__)
 
@@ -415,19 +416,19 @@ class OpenAISessionEvaluator:
 class TTSProvider(Protocol):
     """Protocol for TTS providers."""
 
-    async def synthesize(self, text: str, language: str = "en-US") -> str: ...
+    async def synthesize(self, text: str, language: str = "en-US") -> bytes: ...
 
 
 class UnconfiguredTTSProvider:
     """TTS provider when no API credentials are configured."""
 
-    async def synthesize(self, text: str, language: str = "en-US") -> str:
-        return ""
+    async def synthesize(self, text: str, language: str = "en-US") -> bytes:
+        raise APIError(501, "tts_not_configured", "Text-to-speech is not configured")
 
 
 def get_tts_provider() -> TTSProvider:
     """Build a TTS provider from the configured settings."""
-    provider = settings.STT_PROVIDER.strip().lower()
+    provider = settings.TTS_PROVIDER.strip().lower()
     if provider == "mock":
         return MockTTS()
     if provider == "openai":
@@ -435,8 +436,8 @@ def get_tts_provider() -> TTSProvider:
             return UnconfiguredTTSProvider()
         return OpenAITTS(
             api_key=settings.OPENAI_API_KEY,
-            model=settings.OPENAI_MODEL,
-            voice="alloy",
+            model=settings.OPENAI_TTS_MODEL,
+            voice=settings.OPENAI_TTS_VOICE,
         )
     if provider == "google":
         return UnconfiguredTTSProvider()
@@ -451,8 +452,8 @@ class MockTTS:
     Returns an empty string since no actual audio is generated in mock mode.
     """
 
-    async def synthesize(self, text: str, language: str = "en-US") -> str:
-        return ""
+    async def synthesize(self, text: str, language: str = "en-US") -> bytes:
+        raise APIError(501, "tts_not_configured", "Text-to-speech is not configured")
 
 
 class OpenAITTS:
@@ -469,9 +470,7 @@ class OpenAITTS:
         self.model = model
         self.voice = voice
 
-    async def synthesize(self, text: str, language: str = "en-US") -> str:
-        import httpx
-
+    async def synthesize(self, text: str, language: str = "en-US") -> bytes:
         payload = {
             "model": self.model,
             "voice": self.voice,
@@ -495,21 +494,13 @@ class OpenAITTS:
                     raise APIError(503, "provider_unavailable", "The TTS provider is unavailable")
                 if not response.is_success:
                     raise APIError(502, "provider_request_failed", "The TTS provider rejected the request")
-                data = response.json()
-                if "audio" in str(data):
-                    return ""
-                return data.get("url", "")
+                if not response.content:
+                    raise APIError(502, "provider_invalid_response", "The TTS provider returned empty audio")
+                return response.content
         except APIError:
             raise
         except Exception as exc:
             raise APIError(503, "provider_unavailable", "The TTS provider is unavailable") from exc
-
-
-class UnconfiguredTTSProvider:
-    """TTS provider when no API credentials are configured."""
-
-    async def synthesize(self, text: str, language: str = "en-US") -> str:
-        return ""
 
 
 def get_session_evaluator() -> SessionEvaluator:
@@ -528,8 +519,5 @@ def get_session_evaluator() -> SessionEvaluator:
             timeout=settings.AI_REQUEST_TIMEOUT_SECONDS,
         )
     if provider == "giani":
-        evaluator = get_giani_question_generator()
-        if isinstance(evaluator, UnconfiguredQuestionGenerator):
-            return evaluator
-        return evaluator
+        return get_giani_session_evaluator()
     return UnconfiguredSessionEvaluator()

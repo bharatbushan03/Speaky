@@ -100,6 +100,15 @@ class SessionApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 401)
         self.assertEqual(response.json()["code"], "authentication_required")
 
+    def test_feedback_routes_require_authentication(self):
+        app.dependency_overrides.clear()
+        response = self.client.post(
+            "/api/v1/feedback/analyze",
+            json={"text": "A short answer", "session_type": "interview"},
+        )
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.json()["code"], "authentication_required")
+
 
 class SessionServiceAuthorizationTests(unittest.IsolatedAsyncioTestCase):
     async def test_reads_filter_by_authenticated_user(self):

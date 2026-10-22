@@ -47,8 +47,8 @@ class TranscriptionProvider(Protocol):
 
 
 class TTSProvider(Protocol):
-    async def synthesize(self, text: str, language: str = "en-US") -> str:
-        """Return a URL to the synthesized speech audio. Returns empty string if not supported."""
+    async def synthesize(self, text: str, language: str = "en-US") -> bytes:
+        """Return synthesized audio bytes."""
         ...
 
 
@@ -71,13 +71,17 @@ class UnconfiguredQuestionGenerator:
 
 
 class UnconfiguredSessionEvaluator:
+    def __init__(self, *, code: str = "session_evaluation_not_configured", detail: str = "AI session evaluation is not configured") -> None:
+        self.code = code
+        self.detail = detail
+
     async def evaluate_session(
         self, session: SessionConfigWithDetails
     ) -> EvaluationDraft:
         raise APIError(
             status_code=501,
-            code="session_evaluation_not_configured",
-            detail="AI session evaluation is not configured",
+            code=self.code,
+            detail=self.detail,
         )
 
 
@@ -104,7 +108,7 @@ class UnconfiguredTranscriptionProvider:
 class UnconfiguredTTSProvider:
     """TTS provider when no API credentials are configured."""
 
-    async def synthesize(self, text: str, language: str = "en-US") -> str:
+    async def synthesize(self, text: str, language: str = "en-US") -> bytes:
         raise APIError(
             status_code=501,
             code="tts_not_configured",

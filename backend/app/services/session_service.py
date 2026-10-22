@@ -224,40 +224,33 @@ class SessionService:
 
     async def get_progress_summary(self) -> ProgressSummary:
         """Compute the authenticated user's progress summary from stored data."""
-        # Get completed sessions with evaluations
+        # New sessions are owned by Supabase Auth and do not update the legacy
+        # user_progress table. Read the session tables directly so analytics are
+        # consistent with the practice flow.
         sessions_rows = await self.db.request(
             "GET",
             "/rest/v1/sessions",
             params={
-                "select": "*,session_evaluations(id, overall_score, dimensions, created_at)",
+                "select": "*,session_evaluations(id, overall_score, dimensions, created_at),session_responses(id)",
                 "status": "eq.completed",
                 "order": "created_at.desc",
+                "limit": 500,
             },
         )
-
-        # Get user progress streak
-        progress_rows = await self.db.request(
-            "GET",
-            "/rest/v1/user_progress",
-            params={
-                "select": "total_sessions,current_streak,longest_streak,last_practice_date",
-                "user_id": f"eq.{self.user_id}",
-                "order": "created_at.desc",
-                "limit": 1,
-            },
-        )
-
-        # Calculate total questions and average score
-        total_sessions = 0
+        # Calculate scores, dimensions, and question counts in one pass over
+        # the bounded embedded result instead of issuing one query per session.
         total_questions = 0
         score_sum = 0.0
         score_count = 0
         grammar_scores: list[float] = []
         vocabulary_scores: list[float] = []
         fluency_scores: list[float] = []
-        has_fluency_data = False
 
+        practice_dates: set[str] = set()
         for session_row in sessions_rows:
+            created_at = session_row.get("created_at")
+            if created_at:
+                practice_dates.add(str(created_at)[:10])
             eval_row = session_row.get("session_evaluations")
             if eval_row and len(eval_row) > 0:
                 eval_data = eval_row[0]
@@ -266,47 +259,54 @@ class SessionService:
                     score_sum += float(overall)
                     score_count += 1
 
-            # Count questions from responses
-            session_id = session_row.get("id")
-            if session_id:
-                resp_rows = await self.db.request(
-                    "GET",
-                    "/rest/v1/session_responses",
-                    params={
-                        "select": "id",
-                        "session_id": f"eq.{session_id}",
-                    },
-                )
-                total_questions += len(resp_rows)
+            total_questions += len(session_row.get("session_responses") or [])
 
             # Collect dimension scores from evaluations
-            for session_row in sessions_rows:
-                eval_row = session_row.get("session_evaluations")
-                if eval_row and len(eval_row) > 0:
-                    dims = eval_row[0].get("dimensions")
-                    if dims:
-                        for dim_name, dim_data in dims.items():
-                            if isinstance(dim_data, dict) and dim_data.get("available") and dim_data.get("score") is not None:
-                                score = float(dim_data["score"])
-                                if dim_name == "grammar":
-                                    grammar_scores.append(score)
-                                elif dim_name == "vocabulary":
-                                    vocabulary_scores.append(score)
-                                elif dim_name == "spoken_fluency":
-                                    fluency_scores.append(score)
-                                    has_fluency_data = True
+            if eval_row and len(eval_row) > 0:
+                dims = eval_row[0].get("dimensions")
+                if dims:
+                    for dim_name, dim_data in dims.items():
+                        if isinstance(dim_data, dict) and dim_data.get("available") and dim_data.get("score") is not None:
+                            score = float(dim_data["score"])
+                            if dim_name == "grammar":
+                                grammar_scores.append(score)
+                            elif dim_name == "vocabulary":
+                                vocabulary_scores.append(score)
+                            elif dim_name == "spoken_fluency":
+                                fluency_scores.append(score)
 
         avg_score = round(score_sum / score_count, 2) if score_count > 0 else None
         avg_grammar = round(sum(grammar_scores) / len(grammar_scores), 2) if grammar_scores else None
         avg_vocab = round(sum(vocabulary_scores) / len(vocabulary_scores), 2) if vocabulary_scores else None
         avg_fluency = round(sum(fluency_scores) / len(fluency_scores), 2) if fluency_scores else None
 
-        # Get streak data
-        streak_data = progress_rows[0] if progress_rows else None
-        total_sessions_val = int(streak_data.get("total_sessions", 0)) if streak_data else 0
-        current_streak = int(streak_data.get("current_streak", 0)) if streak_data else 0
-        longest_streak = int(streak_data.get("longest_streak", 0)) if streak_data else 0
-        last_practice_date = streak_data.get("last_practice_date") if streak_data else None
+        # Derive streaks from the new session dates. A current streak includes
+        # today or yesterday, which avoids resetting a streak before a user has
+        # had a chance to practise today.
+        from datetime import date
+        ordered_dates = sorted((date.fromisoformat(value) for value in practice_dates), reverse=True)
+        current_streak = 0
+        if ordered_dates:
+            today = date.today()
+            if ordered_dates[0] in {today, today - timedelta(days=1)}:
+                cursor = ordered_dates[0]
+                for practice_date in ordered_dates:
+                    if practice_date == cursor:
+                        current_streak += 1
+                        cursor -= timedelta(days=1)
+                    elif practice_date < cursor:
+                        break
+        longest_streak = 0
+        running_streak = 0
+        previous = None
+        for practice_date in sorted(ordered_dates):
+            if previous is not None and practice_date == previous + timedelta(days=1):
+                running_streak += 1
+            else:
+                running_streak = 1
+            longest_streak = max(longest_streak, running_streak)
+            previous = practice_date
+        last_practice_date = ordered_dates[0].isoformat() if ordered_dates else None
 
         # Count sessions by mode
         sessions_by_mode: Dict[str, int] = {}
@@ -315,7 +315,8 @@ class SessionService:
             sessions_by_mode[mode] = sessions_by_mode.get(mode, 0) + 1
 
         return ProgressSummary(
-            total_sessions=total_sessions_val,
+            total_sessions=len(sessions_rows),
+            total_questions=total_questions,
             average_score=avg_score,
             grammar_score=avg_grammar,
             vocabulary_score=avg_vocab,

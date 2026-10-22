@@ -39,23 +39,23 @@ export function Footer() {
             </ul>
           </div>
 
-          {/* Company */}
+          {/* Resources */}
           <div>
-            <h3 className="font-semibold mb-4">Company</h3>
+            <h3 className="font-semibold mb-4">Resources</h3>
             <ul className="space-y-2 text-sm text-muted-foreground">
               <li>
-                <Link href="/about" className="hover:text-foreground transition-colors">
-                  About Us
+                <Link href="/session-history" className="hover:text-foreground transition-colors">
+                  Session History
                 </Link>
               </li>
               <li>
-                <Link href="/contact" className="hover:text-foreground transition-colors">
-                  Contact
+                <Link href="/#features" className="hover:text-foreground transition-colors">
+                  How it works
                 </Link>
               </li>
               <li>
-                <Link href="/blog" className="hover:text-foreground transition-colors">
-                  Blog
+                <Link href="/practice" className="hover:text-foreground transition-colors">
+                  Practice guide
                 </Link>
               </li>
             </ul>
@@ -66,13 +66,13 @@ export function Footer() {
             <h3 className="font-semibold mb-4">Legal</h3>
             <ul className="space-y-2 text-sm text-muted-foreground">
               <li>
-                <Link href="/privacy" className="hover:text-foreground transition-colors">
-                  Privacy Policy
-                </Link>
+                <a href="mailto:support@speakready.ai" className="hover:text-foreground transition-colors">
+                  Contact support
+                </a>
               </li>
               <li>
-                <Link href="/terms" className="hover:text-foreground transition-colors">
-                  Terms of Service
+                <Link href="/#features" className="hover:text-foreground transition-colors">
+                  Privacy & security
                 </Link>
               </li>
             </ul>

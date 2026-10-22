@@ -1,288 +1,142 @@
 "use client";
 
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useEffect, useState } from "react";
-import { useSearchParams, useRouter } from "next/navigation";
-import { Progress, Skeleton } from "@/components/ui/progress";
-import { Target, TrendingUp, Clock, Grid } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
-import { useSearchParams as useSupabaseSearchParams } from "@supabase/supabase-js";
-import { useToast } from "@/components/ui/toast";
 import Link from "next/link";
+import { Target } from "lucide-react";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { EmptyState } from "@/components/dashboard/empty-state";
+import { getAPIErrorMessage } from "@/lib/api-client";
+import { sessionsAPI, SessionHistoryFilters, SessionHistoryItem } from "@/lib/api/sessions";
 
-interface SessionHistoryFilters {
-  mode: string;
-  topic: string;
-  status: string;
-  start_date: string;
-  end_date: string;
+const DEFAULT_FILTERS: SessionHistoryFilters = {
+  mode: null,
+  topic: null,
+  status: null,
+  start_date: null,
+  end_date: null,
+  limit: 20,
+  offset: 0,
+};
+
+function formatDuration(minutes: number | null | undefined) {
+  if (!minutes || minutes < 1) return "—";
+  if (minutes < 60) return `${minutes} min`;
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
-interface SessionHistoryEntry {
-  id: string;
-  mode: string;
-  topic: string | null;
-  status: string;
-  question_count: number;
-  started_at: string | null;
-  completed_at: string | null;
-  overall_score: number | null;
-  date: string;
-  duration: string;
+function scoreClass(score: number | null) {
+  if (score === null) return "text-muted-foreground";
+  if (score >= 8) return "text-green-600";
+  if (score >= 6) return "text-yellow-600";
+  return "text-red-600";
 }
 
 export default function SessionHistoryPage() {
-  const router = useRouter();
-  const [sessions, setSessions] = useState<SessionHistoryEntry[]>([]);
-  const [filters, setFilters] = useState<SessionHistoryFilters>({
-    mode: "",
-    topic: "",
-    status: "",
-    start_date: "",
-    end_date: "",
-  });
+  const [filters, setFilters] = useState<SessionHistoryFilters>(DEFAULT_FILTERS);
+  const [sessions, setSessions] = useState<SessionHistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const supabaseSearchParams = useSupabaseSearchParams();
-
   useEffect(() => {
-    async function loadSessions() {
-      setLoading(true);
-      try {
-        const url = "/api/v1/progress/history";
-        const params = new URLSearchParams();
+    const controller = new AbortController();
+    setLoading(true);
+    setError(null);
+    sessionsAPI.getSessionHistory(filters)
+      .then((result) => {
+        if (!controller.signal.aborted) setSessions(result);
+      })
+      .catch((caught) => {
+        if (!controller.signal.aborted) setError(getAPIErrorMessage(caught));
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return () => controller.abort();
+  }, [filters]);
 
-        if (filters.mode) params.append("mode", filters.mode);
-        if (filters.topic) params.append("topic", filters.topic);
-        if (filters.status) params.append("status", filters.status);
-        if (filters.start_date) params.append("start_date", filters.start_date);
-        if (filters.end_date) params.append("end_date", filters.end_date);
-
-        const response = await fetch(`${url}?${params.toString()}`, {
-          credentials: "include",
-        });
-
-        if (!response.ok) {
-          throw new Error("Failed to load session history");
-        }
-
-        const result = await response.json();
-        setSessions(result);
-        setLoading(false);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to load session history");
-        setLoading(false);
-      }
-    }
-
-    loadSessions();
-  }, [filters.mode, filters.topic, filters.status, filters.start_date, filters.end_date]);
-
-  const handleFilterChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
-  ) => {
-    const { name, value } = e.target;
-    setFilters({ ...filters, [name]: value === "" ? undefined : value });
+  const updateFilter = (key: keyof SessionHistoryFilters, value: string) => {
+    setFilters((current) => ({ ...current, [key]: value || null, offset: 0 }));
   };
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center py-12">
-        <div className="space-y-4">
-          <Skeleton className="h-8 w-48 rounded-lg" />
-          <Skeleton className="h-6 w-full" />
-          <Skeleton className="h-4 w-full" />
-        </div>
-      </div>
-    );
-  }
+  if (loading) return <div className="container mx-auto space-y-4 px-4 py-8" role="status"><div className="h-8 w-64 animate-pulse rounded bg-muted" /><div className="h-64 animate-pulse rounded bg-muted" /></div>;
 
   if (error) {
     return (
-      <div className="min-h-screen flex items-center justify-center py-12">
-        <div className="bg-red-50 rounded-border p-6 max-w-md">
-          <h3 className="text-lg font-medium text-red-800 mb-2">Error</h3>
-          <p className="text-red-600">{error}</p>
-          <Button onClick={() => router.replace("/dashboard")}>Go to Dashboard</Button>
-        </div>
+      <div className="container mx-auto flex min-h-[50vh] max-w-lg flex-col items-center justify-center gap-4 px-4 text-center">
+        <Target className="h-10 w-10 text-destructive" />
+        <h1 className="text-xl font-semibold">Unable to load session history</h1>
+        <p role="alert" className="text-sm text-muted-foreground">{error}</p>
+        <Button onClick={() => setFilters((current) => ({ ...current }))}>Try again</Button>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-background p-4">
-      <div className="container mx-auto px-4 py-8">
-        <div className="mb-8">
-          <h1 className="text-3xl md:text-4xl font-bold mb-2">Session History</h1>
-          <p className="text-muted-foreground">
-            Review your completed practice sessions and track your improvement
-          </p>
-        </div>
+    <div className="min-h-screen bg-background">
+      <div className="container mx-auto space-y-6 px-4 py-8">
+        <header>
+          <h1 className="mb-2 text-3xl font-bold md:text-4xl">Session History</h1>
+          <p className="text-muted-foreground">Review saved practice sessions and open a completed coaching report.</p>
+        </header>
 
-        {/* Filters Section */}
-        <div className="card rounded-lg p-4 mb-8 shadow-sm">
-          <form className="grid grid-cols-2 gap-4 max-w-2xl">
-            <div>
-              <label className="block text-sm font-medium text-muted-foreground mb-1">
-                Practice Mode
-              </label>
-              <select
-                name="mode"
-                className="w-full rounded-border border-input px-3 py-2 focus:ring-2 focus:ring-primary focus:ring-offset-2"
-                onChange={handleFilterChange}
-                value={filters.mode}
-              >
-                <option value="">All modes</option>
-                <option value="hr">HR Interview</option>
-                <option value="technical">Technical Interview</option>
-                <option value="viva">Academic Viva</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-muted-foreground mb-1">
-                Topic
-              </label>
-              <input
-                type="text"
-                name="topic"
-                placeholder="e.g. grammar, vocabulary, technical"
-                className="w-full rounded-border border-input px-3 py-2 focus:ring-2 focus:ring-primary focus:ring-offset-2"
-                onChange={handleFilterChange}
-                value={filters.topic || ""}
-                disabled={true}
-              />
-              <p className="text-xs text-muted-foreground mt-1">
-                Filter by topic focus is not yet available in the API
-              </p>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-muted-foreground mb-1">
-                Status
-              </label>
-              <select
-                name="status"
-                className="w-full rounded-border border-input px-3 py-2 focus:ring-2 focus:ring-primary focus:ring-offset-2"
-                onChange={handleFilterChange}
-                value={filters.status}
-              >
-                <option value="">All statuses</option>
-                <option value="completed">Completed</option>
-                <option value="in_progress">In Progress</option>
-                <option value="created">Created</option>
-              </select>
-            </div>
-
-            <div className="col-span-2">
-              <label className="block text-sm font-medium text-muted-foreground mb-1">
-                Date Range
-              </label>
-              <div className="grid grid-cols-2 gap-2">
-                <input
-                  type="date"
-                  name="start_date"
-                  className="w-full rounded-border border-input px-3 py-2 focus:ring-2 focus:ring-primary focus:ring-offset-2"
-                  onChange={handleFilterChange}
-                  value={filters.start_date || ""}
-                />
-                <input
-                  type="date"
-                  name="end_date"
-                  className="w-full rounded-border border-input px-3 py-2 focus:ring-2 focus:ring-primary focus:ring-offset-2"
-                  onChange={handleFilterChange}
-                  value={filters.end_date || ""}
-                />
-              </div>
-            </div>
-          </form>
-        </div>
-
-        {/* Sessions List */}
         <Card>
-          <CardHeader>
-            <CardTitle>Your Practice Sessions</CardTitle>
-            <CardDescription>
-              {sessions.length} session{s}
-            </CardDescription>
-          </CardHeader>
+          <CardHeader><CardTitle className="text-lg">Filter sessions</CardTitle></CardHeader>
+          <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+            <label className="space-y-1 text-sm font-medium">Mode
+              <select className="h-10 w-full rounded-md border border-input bg-background px-3 font-normal" value={filters.mode || ""} onChange={(event) => updateFilter("mode", event.target.value)}>
+                <option value="">All modes</option><option value="hr">HR interview</option><option value="technical">Technical interview</option><option value="viva">Academic viva</option>
+              </select>
+            </label>
+            <label className="space-y-1 text-sm font-medium">Topic focus
+              <input className="h-10 w-full rounded-md border border-input bg-background px-3 font-normal" value={filters.topic || ""} onChange={(event) => updateFilter("topic", event.target.value)} placeholder="Search topic" />
+            </label>
+            <label className="space-y-1 text-sm font-medium">Status
+              <select className="h-10 w-full rounded-md border border-input bg-background px-3 font-normal" value={filters.status || ""} onChange={(event) => updateFilter("status", event.target.value)}>
+                <option value="">All statuses</option><option value="completed">Completed</option><option value="in_progress">In progress</option><option value="created">Created</option><option value="cancelled">Cancelled</option>
+              </select>
+            </label>
+            <label className="space-y-1 text-sm font-medium">From
+              <input type="date" className="h-10 w-full rounded-md border border-input bg-background px-3 font-normal" value={filters.start_date || ""} onChange={(event) => updateFilter("start_date", event.target.value)} />
+            </label>
+            <label className="space-y-1 text-sm font-medium">To
+              <input type="date" className="h-10 w-full rounded-md border border-input bg-background px-3 font-normal" value={filters.end_date || ""} onChange={(event) => updateFilter("end_date", event.target.value)} />
+            </label>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader><CardTitle>Your Practice Sessions</CardTitle><CardDescription>{sessions.length} session{sessions.length === 1 ? "" : "s"} on this page</CardDescription></CardHeader>
           <CardContent>
             {sessions.length === 0 ? (
-              <EmptyState
-                icon={Target}
-                title="No sessions found"
-                description="Start your first practice session to track your progress"
-                actionLabel="Start Practicing"
-                actionHref="/practice"
-              />
+              <EmptyState icon={Target} title="No sessions found" description="Start a practice session or adjust your filters." actionLabel="Start practicing" actionHref="/practice" />
             ) : (
               <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-border-muted">
-                  <thead>
-                    <tr className="text-muted-foreground text-xs uppercase">
-                      <th className="text-left">Date</th>
-                      <th className="text-left">Mode</th>
-                      <th className="text-left">Topic</th>
-                      <th className="text-center">Questions</th>
-                      <th className="text-right">Score</th>
-                      <th className="text-right">Duration</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {sessions.map((session, index) => (
-                      <tr key={index} className="hover:bg-muted/50 transition-colors">
-                        <td className="font-medium text-sm">
-                          {session.date}
-                        </td>
-                        <td>
-                          <Badge variant="outline" className="text-xs">
-                            {session.mode}
-                          </Badge>
-                        </td>
-                        <td className="text-sm truncate">
-                          {session.topic || "-"}
-                        </td>
-                        <td className="text-center text-sm">
-                          {session.question_count}
-                        </td>
-                        <td className="text-right">
-                          {session.overall_score !== null ? (
-                            <div className={cn(
-                              "font-medium",
-                              session.overall_score >= 80 ? "text-green-600" : session.overall_score >= 60 ? "text-yellow-600" : "text-red-600"
-                            )}>
-                              {session.overall_score}
-                            </div>
-                          ) : (
-                            <span className="text-muted-foreground">—</span>
-                          )}
-                        </td>
-                        <td className="text-right text-sm">
-                          {session.duration}
-                        </td>
+                <table className="min-w-full divide-y divide-border text-sm">
+                  <thead><tr className="text-left text-xs uppercase text-muted-foreground"><th className="px-3 py-3">Date</th><th className="px-3 py-3">Mode</th><th className="px-3 py-3">Topic</th><th className="px-3 py-3 text-center">Questions</th><th className="px-3 py-3 text-right">Score</th><th className="px-3 py-3 text-right">Duration</th></tr></thead>
+                  <tbody className="divide-y divide-border">
+                    {sessions.map((session) => (
+                      <tr key={session.session_id} className="hover:bg-muted/50">
+                        <td className="whitespace-nowrap px-3 py-3">{session.date}</td>
+                        <td className="px-3 py-3"><Badge variant="outline" className="capitalize">{session.mode}</Badge></td>
+                        <td className="max-w-[220px] truncate px-3 py-3">{session.topic || "—"}</td>
+                        <td className="px-3 py-3 text-center">{session.question_count}</td>
+                        <td className={`px-3 py-3 text-right font-semibold ${scoreClass(session.overall_score)}`}>{session.overall_score === null ? "—" : `${session.overall_score.toFixed(1)} / 10`}</td>
+                        <td className="px-3 py-3 text-right">{formatDuration(session.duration_minutes)}</td>
+                        <td className="px-3 py-3 text-right"><Button asChild size="sm" variant="ghost"><Link href={`/session-report/${encodeURIComponent(session.session_id)}`}>{session.status === "completed" ? "Report" : "Open"}</Link></Button></td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
             )}
+            <div className="mt-6 flex justify-end">
+              <Button variant="outline" disabled={filters.offset === 0 || loading} onClick={() => setFilters((current) => ({ ...current, offset: Math.max(0, current.offset - current.limit) }))}>Previous</Button>
+              <Button variant="outline" className="ml-2" disabled={sessions.length < filters.limit || loading} onClick={() => setFilters((current) => ({ ...current, offset: current.offset + current.limit }))}>Next</Button>
+            </div>
           </CardContent>
         </Card>
-
-        {/* Pagination section - placeholder for future implementation */}
-        {/* TODO: Add pagination when API supports it */}
-        {/* 
-        <div className="mt-8">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={true}
-          >
-            Load More
-          </Button>
-        </div>
-        */}
       </div>
     </div>
   );

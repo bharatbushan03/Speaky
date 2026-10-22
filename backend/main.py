@@ -1,6 +1,8 @@
 import logging
+import time
 import uuid
 from contextlib import asynccontextmanager
+from collections import defaultdict, deque
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.encoders import jsonable_encoder
@@ -21,6 +23,13 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     # Startup
     logger.info("Starting SpeakReady AI Backend")
+    if settings.is_production:
+        if settings.DEBUG or settings.SECRET_KEY == "change-this-in-production":
+            raise RuntimeError("Production requires DEBUG=False and a non-default SECRET_KEY")
+        if not settings.allowed_origins or any(not origin.startswith("https://") for origin in settings.allowed_origins):
+            raise RuntimeError("Production ALLOWED_ORIGINS must contain only HTTPS origins")
+        if not settings.SUPABASE_URL or not settings.SUPABASE_ANON_KEY:
+            raise RuntimeError("Production requires SUPABASE_URL and SUPABASE_ANON_KEY")
     await init_db()
     yield
     # Shutdown
@@ -34,16 +43,57 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+_rate_limit_events: dict[str, deque[float]] = defaultdict(deque)
+
+
+@app.middleware("http")
+async def request_safety_middleware(request: Request, call_next):
+    """Apply bounded request sizes and a small per-client abuse guard.
+
+    This in-process limiter protects a single worker from accidental bursts.
+    Production deployments should also configure an edge/WAF rate limit because
+    multiple workers or replicas do not share this memory.
+    """
+    request.state.request_id = request.headers.get("x-request-id", str(uuid.uuid4()))[:100]
+    content_length = request.headers.get("content-length")
+    if content_length:
+        try:
+            if int(content_length) > settings.MAX_REQUEST_BODY_BYTES:
+                return JSONResponse(
+                    status_code=413,
+                    content={"detail": "Request body is too large", "code": "request_too_large", "request_id": _request_id(request)},
+                )
+        except ValueError:
+            return JSONResponse(
+                status_code=400,
+                content={"detail": "Invalid Content-Length header", "code": "invalid_request", "request_id": _request_id(request)},
+            )
+
+    now = time.monotonic()
+    key = request.client.host if request.client else "unknown"
+    events = _rate_limit_events[key]
+    while events and now - events[0] >= settings.RATE_LIMIT_WINDOW_SECONDS:
+        events.popleft()
+    if len(events) >= settings.RATE_LIMIT_REQUESTS:
+        return JSONResponse(
+            status_code=429,
+            headers={"Retry-After": str(settings.RATE_LIMIT_WINDOW_SECONDS)},
+            content={"detail": "Too many requests", "code": "rate_limited", "request_id": _request_id(request)},
+        )
+    events.append(now)
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = _request_id(request)
+    return response
+
 
 def _request_id(request: Request) -> str:
-    existing = request.headers.get("x-request-id")
-    return existing[:100] if existing else str(uuid.uuid4())
+    return getattr(request.state, "request_id", request.headers.get("x-request-id", str(uuid.uuid4()))[:100])
 
 
 @app.exception_handler(APIError)
 async def api_error_handler(request: Request, exc: APIError) -> JSONResponse:
     request_id = _request_id(request)
-    body = {"detail": exc.detail, "code": exc.code, "request_id": request_id}
+    body: dict[str, object] = {"detail": exc.detail, "code": exc.code, "request_id": request_id}
     if exc.errors is not None:
         body["errors"] = exc.errors
     return JSONResponse(status_code=exc.status_code, content=body)
@@ -92,7 +142,8 @@ async def http_error_handler(request: Request, exc: HTTPException) -> JSONRespon
 
 @app.exception_handler(Exception)
 async def unhandled_error_handler(request: Request, exc: Exception) -> JSONResponse:
-    logger.exception("Unhandled API error")
+    request_id = _request_id(request)
+    logger.exception("Unhandled API error request_id=%s method=%s path=%s", request_id, request.method, request.url.path)
     return JSONResponse(
         status_code=500,
         content={
@@ -106,9 +157,9 @@ async def unhandled_error_handler(request: Request, exc: Exception) -> JSONRespo
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.allowed_origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
 )
 
 # Include API routes
@@ -119,11 +170,11 @@ app.include_router(api_router, prefix="/api/v1")
 async def root():
     return {
         "message": "Welcome to SpeakReady AI API",
-        "version": "0.1.0",
+        "version": settings.APP_VERSION,
         "status": "healthy",
     }
 
 
 @app.get("/health")
 async def health_check():
-    return {"status": "ok", "service": "speakready-ai-backend"}
+    return {"status": "ok", "service": settings.APP_NAME, "version": settings.APP_VERSION}

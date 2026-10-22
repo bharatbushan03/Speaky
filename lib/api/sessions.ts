@@ -1,4 +1,4 @@
-import { get, post, put, patch } from "@/lib/api-client";
+import { apiClient, get, post, put, patch } from "@/lib/api-client";
 import {
   SessionConfigRequest,
   SessionDetail,
@@ -54,6 +54,7 @@ export interface SessionHistoryItem {
   completed_at: string | null;
   overall_score: number | null;
   date: string;
+  duration_minutes?: number | null;
 }
 
 export interface SessionHistoryFilters {
@@ -103,14 +104,18 @@ export const sessionsAPI = {
     get<SessionEvaluation>(`/api/v1/sessions/${encodeURIComponent(id)}/evaluation`),
   evaluateSession: (id: string): Promise<SessionEvaluation> =>
     post<SessionEvaluation>(`/api/v1/sessions/${encodeURIComponent(id)}/evaluate`),
-  postTTS: (data: { question_text: string; language: string }) =>
-    post<TTSResponse>("/api/v1/feedback/tts", data),
+  postTTS: async (data: { text: string; language: string }): Promise<Blob> => {
+    const response = await apiClient.post<Blob>("/api/v1/feedback/tts", data, {
+      responseType: "blob",
+    });
+    return response.data;
+  },
   getProgressSummary: (): Promise<ProgressSummary> =>
     get<ProgressSummary>("/api/v1/progress/summary"),
-  getSessionHistory: (filters: SessionHistoryFilters) =>
-    get<List<SessionHistoryItem>>("/api/v1/progress/history", { params: filters }),
-  getPerformanceTrends: (): Promise<List<TrendPoint>> =>
-    get<List<TrendPoint>>("/api/v1/progress/trends"),
-  getPersonalizedRecommendations: (): Promise<List<RecommendationItem>> =>
-    get<List<RecommendationItem>>("/api/v1/progress/recommendations"),
+  getSessionHistory: (filters: Partial<SessionHistoryFilters> = {}): Promise<SessionHistoryItem[]> =>
+    get<SessionHistoryItem[]>("/api/v1/progress/history", { params: filters }),
+  getPerformanceTrends: (): Promise<TrendPoint[]> =>
+    get<TrendPoint[]>("/api/v1/progress/trends"),
+  getPersonalizedRecommendations: (): Promise<RecommendationItem[]> =>
+    get<RecommendationItem[]>("/api/v1/progress/recommendations"),
 };
