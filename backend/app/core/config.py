@@ -28,10 +28,11 @@ class Settings(BaseSettings):
     SUPABASE_ANON_KEY: str = ""
     
     # AI Provider Settings. ``mock`` is deterministic and keeps local/offline
-    # development usable. ``openai`` uses its official documented API when a
-    # backend-only key is configured. Giani is intentionally not enabled: no
-    # official public generation API could be verified.
-    AI_PROVIDER: str = "openai"  # mock, openai, giani
+    # development usable. ``openai`` uses OpenAI's API, while
+    # ``azure_openai`` uses an Azure OpenAI deployment from Microsoft Foundry.
+    # Giani is intentionally not enabled: no official public generation API
+    # could be verified.
+    AI_PROVIDER: str = "openai"  # mock, openai, azure_openai, giani
     AI_REQUEST_TIMEOUT_SECONDS: float = Field(default=20.0, gt=0, le=120)
     EVALUATION_WEIGHTS_JSON: str = (
         '{"grammar":0.15,"vocabulary":0.10,"clarity":0.15,"coherence":0.15,'
@@ -42,6 +43,12 @@ class Settings(BaseSettings):
     # OpenAI Settings
     OPENAI_API_KEY: str = ""
     OPENAI_MODEL: str = "gpt-3.5-turbo"
+
+    # Azure OpenAI / Microsoft Foundry Settings
+    # AZURE_OPENAI_DEPLOYMENT is the deployment name, not the model family name.
+    AZURE_OPENAI_ENDPOINT: str = ""
+    AZURE_OPENAI_API_KEY: str = ""
+    AZURE_OPENAI_DEPLOYMENT: str = ""
     
     # Giani AI settings are retained as placeholders only. Do not populate or
     # use them until Giani supplies an official developer API specification.

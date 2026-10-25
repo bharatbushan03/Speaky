@@ -272,7 +272,7 @@ npm run build
 ## Known Limitations & Future Work
 
 ### Current Implementation
-- ✅ Backend generation with explicit mock or configured OpenAI adapter; Giani is fail-closed until its official API is verified
+- ✅ Backend generation with explicit mock, OpenAI, or Azure OpenAI/Microsoft Foundry adapter; Giani is fail-closed until its official API is verified
 - ✅ Browser-based speech recognition (no hosted STT)
 - ✅ No AI feedback or evaluation
 - ✅ No session summary/results page

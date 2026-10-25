@@ -32,7 +32,19 @@ async def readiness_check():
                 database_reachable = response.status_code < 500
         except httpx.HTTPError:
             database_reachable = False
-    ai_configured = settings.AI_PROVIDER.strip().lower() == "mock" or bool(settings.OPENAI_API_KEY)
+    provider = settings.AI_PROVIDER.strip().lower()
+    ai_configured = (
+        provider == "mock"
+        or (provider == "openai" and bool(settings.OPENAI_API_KEY))
+        or (
+            provider in {"azure_openai", "azure-openai"}
+            and bool(
+                settings.AZURE_OPENAI_ENDPOINT
+                and settings.AZURE_OPENAI_API_KEY
+                and settings.AZURE_OPENAI_DEPLOYMENT
+            )
+        )
+    )
     ready = database_configured and database_reachable and ai_configured
     payload = {
         "status": "ready" if ready else "degraded",

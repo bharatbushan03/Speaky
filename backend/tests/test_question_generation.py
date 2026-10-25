@@ -10,9 +10,12 @@ from app.api.endpoints.sessions import get_question_generator, get_session_servi
 from app.core.config import settings
 from app.core.errors import APIError
 from app.models.schemas import GeneratedQuestion, QuestionResponse, SessionConfigWithDetails
+from app.services.evaluation import AzureOpenAISessionEvaluator, get_session_evaluator
 from app.services.question_generation import (
+    AzureOpenAIQuestionGenerator,
     MockQuestionGenerator,
     OpenAIQuestionGenerator,
+    azure_openai_chat_completions_url,
     get_question_generator as build_question_generator,
 )
 from app.services.session_service import SessionService
@@ -174,6 +177,61 @@ class OpenAIProviderTests(unittest.IsolatedAsyncioTestCase):
         )
 
 
+class AzureOpenAIProviderTests(unittest.IsolatedAsyncioTestCase):
+    @staticmethod
+    def session() -> SessionConfigWithDetails:
+        return SessionConfigWithDetails.model_validate(session_payload())
+
+    def test_normalizes_supported_endpoint_shapes(self):
+        self.assertEqual(
+            azure_openai_chat_completions_url("https://resource.openai.azure.com"),
+            "https://resource.openai.azure.com/openai/v1/chat/completions",
+        )
+        self.assertEqual(
+            azure_openai_chat_completions_url("https://foundry.example/openai/v1/"),
+            "https://foundry.example/openai/v1/chat/completions",
+        )
+
+    async def test_uses_azure_api_key_and_deployment(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            body = json.loads(request.content)
+            self.assertEqual(
+                str(request.url),
+                "https://resource.openai.azure.com/openai/v1/chat/completions",
+            )
+            self.assertEqual(body["model"], "foundry-deployment")
+            self.assertEqual(request.headers["api-key"], "azure-secret")
+            self.assertNotIn("authorization", request.headers)
+            return httpx.Response(
+                200,
+                json={
+                    "choices": [
+                        {
+                            "message": {
+                                "content": json.dumps(
+                                    {
+                                        "text": "Describe a resilient deployment.",
+                                        "context": None,
+                                        "hints": ["Mention rollback."],
+                                        "evaluation_criteria": ["Covers failure recovery"],
+                                    }
+                                )
+                            }
+                        }
+                    ]
+                },
+            )
+
+        provider = AzureOpenAIQuestionGenerator(
+            api_key="azure-secret",
+            endpoint="https://resource.openai.azure.com",
+            deployment="foundry-deployment",
+            transport=httpx.MockTransport(handler),
+        )
+        result = await provider.generate_question(self.session())
+        self.assertEqual(result.text, "Describe a resilient deployment.")
+
+
 class ProviderFactoryTests(unittest.IsolatedAsyncioTestCase):
     async def test_giani_fails_closed_without_inventing_an_endpoint(self):
         original_provider = settings.AI_PROVIDER
@@ -186,6 +244,25 @@ class ProviderFactoryTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(caught.exception.code, "giani_api_not_configured")
         finally:
             settings.AI_PROVIDER = original_provider
+
+    async def test_builds_azure_openai_provider_from_foundry_settings(self):
+        original = {
+            "AI_PROVIDER": settings.AI_PROVIDER,
+            "AZURE_OPENAI_ENDPOINT": settings.AZURE_OPENAI_ENDPOINT,
+            "AZURE_OPENAI_API_KEY": settings.AZURE_OPENAI_API_KEY,
+            "AZURE_OPENAI_DEPLOYMENT": settings.AZURE_OPENAI_DEPLOYMENT,
+        }
+        try:
+            settings.AI_PROVIDER = "azure_openai"
+            settings.AZURE_OPENAI_ENDPOINT = "https://resource.openai.azure.com"
+            settings.AZURE_OPENAI_API_KEY = "azure-secret"
+            settings.AZURE_OPENAI_DEPLOYMENT = "foundry-deployment"
+            provider = build_question_generator()
+            self.assertIsInstance(provider, AzureOpenAIQuestionGenerator)
+            self.assertIsInstance(get_session_evaluator(), AzureOpenAISessionEvaluator)
+        finally:
+            for name, value in original.items():
+                setattr(settings, name, value)
 
 
 class SessionPersistenceTests(unittest.IsolatedAsyncioTestCase):

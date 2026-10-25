@@ -16,8 +16,8 @@ are not claimed here.
 - Supabase Auth bearer-token authentication and user-scoped session access.
 - Atomic PostgreSQL RPCs for session creation, question persistence, answer
   upserts, lifecycle transitions, completion, and evaluation persistence.
-- Mock question/evaluation adapters for offline development and OpenAI adapters
-  for documented chat-completion, transcription, and TTS contracts.
+- Mock question/evaluation adapters for offline development, OpenAI adapters,
+  and Azure OpenAI adapters for Microsoft Foundry chat-completion deployments.
 - Browser SpeechRecognition voice input with an explicit unsupported-browser
   fallback; transcripts are saved as answers only after submission.
 - Session history, filters, score trends, reports, streaks, and progress data.
@@ -43,9 +43,10 @@ Supabase PostgreSQL + Supabase Auth + RLS
 - Backend: Python 3.11, FastAPI, Pydantic v2, Uvicorn, httpx, Supabase
   PostgREST/Auth integration.
 - Data/auth: Supabase PostgreSQL, Supabase Auth, RLS, numbered SQL migrations.
-- AI: deterministic `mock` adapter or backend-only OpenAI adapter. Giani is
-  fail-closed because its public developer contract was not verifiable in this
-  repository; do not guess an endpoint or request format.
+- AI: deterministic `mock` adapter, backend-only OpenAI adapter, or Azure OpenAI
+  adapter for Microsoft Foundry deployments. Giani is fail-closed because its
+  public developer contract was not verifiable in this repository; do not guess
+  an endpoint or request format.
 
 ## Prerequisites
 
@@ -53,7 +54,9 @@ Supabase PostgreSQL + Supabase Auth + RLS
 - Python version in `.python-version` (3.11.9).
 - npm and a Python virtual environment.
 - A Supabase project for authenticated sessions and persistence.
-- An OpenAI account/key only if `AI_PROVIDER=openai` or OpenAI STT/TTS is used.
+- An OpenAI account/key only if `AI_PROVIDER=openai` or OpenAI STT/TTS is used,
+  or an Azure OpenAI/Microsoft Foundry deployment and backend credential if
+  `AI_PROVIDER=azure_openai`.
 - `psql` or Docker Desktop for applying migrations.
 
 ## Local setup
@@ -112,10 +115,13 @@ provider. Voice input requires a browser implementing SpeechRecognition.
 | `DATABASE_URL` | Migration only | PostgreSQL connection string used by the migration operator. |
 | `SECRET_KEY` | Production | Random backend secret, at least 32 characters; not used as a Supabase user token. |
 | `ALLOWED_ORIGINS` | Yes | Comma-separated exact frontend origins. Production origins must use HTTPS. |
-| `AI_PROVIDER` | Yes | `mock`, `openai`, or fail-closed `giani`. |
+| `AI_PROVIDER` | Yes | `mock`, `openai`, `azure_openai`, or fail-closed `giani`. |
 | `AI_REQUEST_TIMEOUT_SECONDS` | Yes | Provider timeout, bounded to 1–120 seconds. |
 | `OPENAI_API_KEY` | If OpenAI | Backend-only OpenAI credential. |
 | `OPENAI_MODEL` | If OpenAI | Chat model used for questions/evaluation. |
+| `AZURE_OPENAI_ENDPOINT` | If Azure OpenAI | Azure OpenAI resource or Microsoft Foundry project endpoint. |
+| `AZURE_OPENAI_API_KEY` | If Azure OpenAI | Backend-only Azure OpenAI credential. |
+| `AZURE_OPENAI_DEPLOYMENT` | If Azure OpenAI | The deployed model name shown in Microsoft Foundry. |
 | `OPENAI_TTS_MODEL` / `OPENAI_TTS_VOICE` | If OpenAI TTS | TTS model and voice. |
 | `GIANI_API_KEY`, `GIANI_API_URL`, `GIANI_MODEL` | If verified later | Placeholders only; currently fails closed. |
 | `STT_PROVIDER` | Yes | `openai`, `google`, `azure`, or `mock`. Google/Azure adapters are not implemented. |
@@ -125,6 +131,12 @@ provider. Voice input requires a browser implementing SpeechRecognition.
 
 The canonical variable lists are `.env.example` and `backend/.env.example`.
 Never commit `.env`, `.env.local`, credentials, or provider payloads.
+
+For Microsoft Foundry, set `AI_PROVIDER=azure_openai`, use the endpoint for the
+Azure OpenAI resource or Foundry project, and set
+`AZURE_OPENAI_DEPLOYMENT` to the deployment name shown in Foundry. The backend
+sends the deployment name as the chat-completions `model` value and keeps the
+credential server-side.
 
 ## Database migrations
 
@@ -277,7 +289,8 @@ dashboard and browser checks have actually succeeded.
 - **503 authentication/database unavailable:** check Supabase URL, anon key,
   project status, CORS origin, and `/api/v1/health/ready`.
 - **Questions/evaluation unavailable:** check `AI_PROVIDER`, provider key/model,
-  credit/rate limits, and backend logs. `mock` is the offline fallback.
+  Azure endpoint/deployment when using `azure_openai`, credit/rate limits, and
+  backend logs. `mock` is the offline fallback.
 - **TTS unavailable:** configure `TTS_PROVIDER=openai` and the OpenAI key, or
   leave the feature disabled. The endpoint no longer returns fabricated URLs.
 - **Voice input unavailable:** browser SpeechRecognition support and microphone
@@ -303,7 +316,9 @@ dashboard and browser checks have actually succeeded.
 - Real Supabase/RLS, microphone, and paid AI-provider checks require external
   services and were not replaced by offline tests.
 - Google/Azure STT adapters and the Giani provider remain explicitly
-  unconfigured rather than guessing undocumented integrations.
+  unconfigured rather than guessing undocumented integrations. Azure OpenAI
+  question generation and evaluation are supported separately through the
+  `azure_openai` AI provider.
 - The in-process request limiter is not a substitute for an edge/WAF limiter
   when running multiple workers or replicas.
 

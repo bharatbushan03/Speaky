@@ -327,8 +327,8 @@ The project includes:
 - SUPABASE_KEY
 - DATABASE_URL
 - SECRET_KEY
-- AI_PROVIDER (openai/giani)
-- OPENAI_API_KEY or GIANI_API_KEY
+- AI_PROVIDER (openai/azure_openai/giani)
+- OPENAI_API_KEY, or AZURE_OPENAI_ENDPOINT/AZURE_OPENAI_API_KEY/AZURE_OPENAI_DEPLOYMENT
 
 ### Optional Configuration
 

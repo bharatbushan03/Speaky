@@ -96,9 +96,10 @@ SUPABASE_KEY=your_service_role_key_here
 DATABASE_URL=postgresql://...
 
 # Optional (for AI features)
-AI_PROVIDER=openai
-OPENAI_API_KEY=sk-...
-OPENAI_MODEL=gpt-3.5-turbo
+AI_PROVIDER=azure_openai
+AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com
+AZURE_OPENAI_API_KEY=your_azure_openai_api_key
+AZURE_OPENAI_DEPLOYMENT=your_foundry_deployment_name
 
 # Required for security
 SECRET_KEY=generate_a_32_character_secret_key
@@ -308,6 +309,9 @@ Question generation now supports these backend-only provider modes:
 
 - **Mock** (offline default): deterministic adapter for local development/tests
 - **OpenAI**: Requires `AI_PROVIDER=openai`, `OPENAI_API_KEY`, and optionally `OPENAI_MODEL`
+- **Azure OpenAI / Microsoft Foundry**: Requires `AI_PROVIDER=azure_openai`,
+  `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_API_KEY`, and
+  `AZURE_OPENAI_DEPLOYMENT`
 - **Giani AI**: fail-closed; its public generation endpoint and contract are not verified
 - **Others**: Add a provider adapter implementing `QuestionGenerator`
 

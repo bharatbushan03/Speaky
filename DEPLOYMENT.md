@@ -64,8 +64,9 @@ NEXT_PUBLIC_SUPABASE_URL=https://<project>.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=<public-anon-key>
 ```
 
-Never set `SUPABASE_KEY`, `DATABASE_URL`, `OPENAI_API_KEY`, `GIANI_API_KEY`, or
-`SECRET_KEY` as `NEXT_PUBLIC_*` variables.
+Never set `SUPABASE_KEY`, `DATABASE_URL`, `OPENAI_API_KEY`,
+`AZURE_OPENAI_API_KEY`, `GIANI_API_KEY`, or `SECRET_KEY` as `NEXT_PUBLIC_*`
+variables.
 
 ## Smoke test after both deploys
 
