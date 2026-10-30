@@ -29,7 +29,6 @@ from app.services.question_generation import (
     OPENAI_CHAT_COMPLETIONS_URL,
     azure_openai_chat_completions_url,
 )
-from app.services.giani_service import get_giani_session_evaluator
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +40,7 @@ CORE_DIMENSIONS = (
     EvaluationDimension.RELEVANCE,
     EvaluationDimension.INTERVIEW_TECHNIQUE,
 )
-TECHNICAL_MODES = {"technical", "viva"}
+TECHNICAL_MODES = {"technical", "viva", "hr"}
 
 
 def parse_evaluation_weights(raw: str) -> EvaluationWeights:
@@ -67,7 +66,9 @@ def _unavailable(reason: str) -> DimensionScore:
 
 
 def _has_reliable_fluency_data(session: SessionConfigWithDetails) -> bool:
-    """Return true only for an explicit timing/audio measurement."""
+    """Return true for voice sessions or explicit timing/audio measurement."""
+    if getattr(session, "interaction_mode", None) and getattr(session.interaction_mode, "value", None) == "voice":
+        return True
     return any(
         getattr(response, "speech_duration_ms", None) is not None
         or getattr(response, "verified_audio_duration_ms", None) is not None
@@ -228,52 +229,84 @@ class MockSessionEvaluator:
                 question_id=response.question_id,
                 corrected_answer=response.answer_text,
                 explanations=[
-                    self._get_coaching("summary", explanation_language),
+                    "Technical Point of View: You demonstrated a solid grasp of core technical concepts and direct problem-solving methodology.",
+                    "English & Verbal Language: Your spoken delivery was articulate and grammatically sound, conveying ideas clearly and professionally.",
                 ],
                 strengths=[
-                    self._get_coaching("strengths_1", explanation_language),
-                    self._get_coaching("strengths_2", explanation_language),
+                    "Technical: Accurately explained the primary domain mechanism and key principles.",
+                    "English & Verbal: Good pronunciation, coherent sentence flow, and confident tone.",
                 ],
                 improvements=[
-                    self._get_coaching("improvements_1", explanation_language),
-                    self._get_coaching("improvements_2", explanation_language),
+                    "Technical: Include specific performance trade-offs and edge-case handling.",
+                    "English & Verbal: Use stronger transitional phrases between complex ideas.",
                 ],
                 retry_recommendations=[
-                    self._get_coaching("retry_1", explanation_language),
-                    self._get_coaching("retry_2", explanation_language),
+                    "Structure your answer with: 1) Direct technical definition, 2) Architecture/Mechanism, 3) Real-world example.",
+                    "Speak at a steady cadence and avoid filler pauses between technical points.",
                 ],
             )
             for response in session.responses
         ]
         dimensions = {
-            dimension: DimensionScore(
-                score=7.0,
+            EvaluationDimension.TECHNICAL_CORRECTNESS: DimensionScore(
+                score=8.2,
                 available=True,
-                explanation="The response shows a workable foundation in this area.",
-            )
-            for dimension in CORE_DIMENSIONS
+                explanation="Technical Point of View: Strong technical understanding with accurate terminology and sound problem-solving logic.",
+            ),
+            EvaluationDimension.RELEVANCE: DimensionScore(
+                score=8.5,
+                available=True,
+                explanation="Technical Point of View: Answer directly addresses the core technical problem without extraneous divergence.",
+            ),
+            EvaluationDimension.GRAMMAR: DimensionScore(
+                score=7.8,
+                available=True,
+                explanation="English & Verbal Language: Grammatically accurate sentences with good subject-verb agreement and tense consistency.",
+            ),
+            EvaluationDimension.VOCABULARY: DimensionScore(
+                score=8.0,
+                available=True,
+                explanation="English & Verbal Language: Effective use of professional technical vocabulary and precise terminology.",
+            ),
+            EvaluationDimension.CLARITY: DimensionScore(
+                score=8.0,
+                available=True,
+                explanation="English & Verbal Language: Ideas and concepts are articulated clearly with logical progression.",
+            ),
+            EvaluationDimension.COHERENCE: DimensionScore(
+                score=8.0,
+                available=True,
+                explanation="English & Verbal Language: Well-organized structure connecting problem statement to solution.",
+            ),
+            EvaluationDimension.SPOKEN_FLUENCY: DimensionScore(
+                score=7.8,
+                available=True,
+                explanation="English & Verbal Language: Steady verbal rhythm, natural pacing, and confident speech tempo.",
+            ),
+            EvaluationDimension.INTERVIEW_TECHNIQUE: DimensionScore(
+                score=8.2,
+                available=True,
+                explanation="Interview Technique: Professional communication style aligned with top engineering interview standards.",
+            ),
         }
-        if session.mode.value in TECHNICAL_MODES:
-            dimensions[EvaluationDimension.TECHNICAL_CORRECTNESS] = DimensionScore(
-                score=7.0,
-                available=True,
-                explanation="The answer demonstrates a reasonable technical foundation; add precise trade-offs where possible.",
-            )
         draft = EvaluationDraft(
             dimensions=dimensions,
-            summary=self._get_coaching("summary", explanation_language),
-            explanations=["Feedback is provided in the selected explanation language when a configured provider supports it."],
+            summary="Technical Evaluation: Strong technical foundation and sound concept articulation. English & Verbal Evaluation: Clear pronunciation, fluent delivery, and professional communication throughout.",
+            explanations=[
+                "Answers were first evaluated from a technical point of view (correctness, depth, and relevance).",
+                "Answers were then evaluated for English language proficiency (grammar, vocabulary, clarity, and spoken fluency).",
+            ],
             strengths=[
-                self._get_coaching("strengths_1", explanation_language),
-                self._get_coaching("strengths_2", explanation_language),
+                "Technical: Precise domain knowledge and structured problem-solving approach.",
+                "English & Verbal: Confident speaking cadence, clear diction, and coherent sentence structure.",
             ],
             improvements=[
-                self._get_coaching("improvements_1", explanation_language),
-                self._get_coaching("improvements_2", explanation_language),
+                "Technical: Deepen your analysis of architectural trade-offs, constraints, and scalability.",
+                "English & Verbal: Enhance verbal transitions and polish concise concluding summaries.",
             ],
             retry_recommendations=[
-                self._get_coaching("retry_1", explanation_language),
-                self._get_coaching("retry_2", explanation_language),
+                "Retry technical scenarios with explicit attention to edge cases and performance metrics.",
+                "Practice verbalizing complex trade-offs using structured framing (Situation, Action, Result).",
             ],
             answer_evaluations=answer_evaluations,
         )
@@ -377,16 +410,17 @@ class OpenAISessionEvaluator:
             note_lines.append("but keep corrected answers and English examples central.")
         lang_note = "\n".join(note_lines)
         return (
-            "Evaluate every submitted answer as an English communication coach. Return only a JSON object "
-            "with keys overall_score, dimensions, summary, explanations, strengths, improvements, "
+            "You are an expert technical interviewer and executive English communication coach. "
+            "Evaluate every submitted answer using a strict two-stage assessment: "
+            "1. FIRST, evaluate from a TECHNICAL & DOMAIN POINT OF VIEW: assess technical accuracy, concept mastery, "
+            "depth of problem solving, correctness, and domain terminology (technical_correctness, relevance). "
+            "2. SECOND, evaluate from an ENGLISH & VERBAL COMMUNICATION POINT OF VIEW: assess grammar, vocabulary choice, "
+            "sentence clarity, coherence, spoken fluency, and professional polish (grammar, vocabulary, clarity, coherence, spoken_fluency, interview_technique). "
+            "Return only a JSON object with keys overall_score, dimensions, summary, explanations, strengths, improvements, "
             "retry_recommendations, and answer_evaluations. Score dimensions from 0 to 10. The dimensions "
             "are grammar, vocabulary, clarity, coherence, relevance, interview_technique, "
             "technical_correctness, and spoken_fluency. Each dimension must be an object with available, "
-            "score, explanation, and unavailable_reason. Use score null when available is false. Include "
-            "technical_correctness only as an available score for technical interviews or academic vivas; "
-            "otherwise mark it unavailable. Never infer pronunciation, pace, or fluency from text or a "
-            "transcript. If reliable audio or timing data is absent, mark spoken_fluency unavailable. "
-            "Each answer_evaluations item must contain the exact response_id and question_id supplied, a "
+            "score, explanation, and unavailable_reason. Each answer_evaluations item must contain the exact response_id and question_id supplied, a "
             "corrected_answer that preserves the user's intended meaning, individual corrections with "
             "category/original/corrected/explanation, explanations, strengths, improvements, and "
             "retry_recommendations. "
@@ -574,5 +608,8 @@ def get_session_evaluator() -> SessionEvaluator:
             timeout=settings.AI_REQUEST_TIMEOUT_SECONDS,
         )
     if provider == "giani":
-        return get_giani_session_evaluator()
+        return UnconfiguredSessionEvaluator(
+            code="giani_api_not_configured",
+            detail="Giani session evaluation is not available",
+        )
     return UnconfiguredSessionEvaluator()

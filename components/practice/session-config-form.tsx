@@ -274,6 +274,33 @@ export function SessionConfigForm({ mode, onStartSession, isStarting = false, st
             <label
               className={cn(
                 "flex flex-col items-center space-y-3 rounded-lg border-2 p-6 cursor-pointer transition-all hover:border-primary hover:shadow-md",
+                config.interactionMode === "voice" &&
+                  "border-primary bg-accent/60 ring-2 ring-primary/20"
+              )}
+            >
+              <RadioGroupItem value="voice" className="sr-only" />
+              <div className="rounded-full bg-emerald-500/10 p-4 text-emerald-600">
+                <Mic className="h-8 w-8 text-emerald-600" />
+              </div>
+              <div className="text-center">
+                <div className="font-semibold mb-1 flex items-center justify-center gap-1.5">
+                  <span>Real-time Voice Interview</span>
+                  <Badge variant="default" className="text-[10px] bg-emerald-600">Recommended</Badge>
+                </div>
+                <div className="text-sm text-muted-foreground">
+                  AI speaks questions in real-time &bull; Live voice conversation
+                </div>
+              </div>
+              {config.interactionMode === "voice" && (
+                <Badge variant="secondary" className="mt-2">
+                  Selected
+                </Badge>
+              )}
+            </label>
+
+            <label
+              className={cn(
+                "flex flex-col items-center space-y-3 rounded-lg border-2 p-6 cursor-pointer transition-all hover:border-primary hover:shadow-md",
                 config.interactionMode === "text" &&
                   "border-primary bg-accent"
               )}
@@ -285,34 +312,10 @@ export function SessionConfigForm({ mode, onStartSession, isStarting = false, st
               <div className="text-center">
                 <div className="font-semibold mb-1">Text Mode</div>
                 <div className="text-sm text-muted-foreground">
-                  Type your responses
+                  Written questions & typed responses
                 </div>
               </div>
               {config.interactionMode === "text" && (
-                <Badge variant="secondary" className="mt-2">
-                  Selected
-                </Badge>
-              )}
-            </label>
-
-            <label
-              className={cn(
-                "flex flex-col items-center space-y-3 rounded-lg border-2 p-6 cursor-pointer transition-all hover:border-primary hover:shadow-md",
-                config.interactionMode === "voice" &&
-                  "border-primary bg-accent"
-              )}
-            >
-              <RadioGroupItem value="voice" className="sr-only" />
-              <div className="rounded-full bg-primary/10 p-4">
-                <Mic className="h-8 w-8 text-primary" />
-              </div>
-              <div className="text-center">
-                <div className="font-semibold mb-1">Voice Mode</div>
-                <div className="text-sm text-muted-foreground">
-                  Speak your responses
-                </div>
-              </div>
-              {config.interactionMode === "voice" && (
                 <Badge variant="secondary" className="mt-2">
                   Selected
                 </Badge>

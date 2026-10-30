@@ -114,7 +114,7 @@ export default function SessionHistoryPage() {
             ) : (
               <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-border text-sm">
-                  <thead><tr className="text-left text-xs uppercase text-muted-foreground"><th className="px-3 py-3">Date</th><th className="px-3 py-3">Mode</th><th className="px-3 py-3">Topic</th><th className="px-3 py-3 text-center">Questions</th><th className="px-3 py-3 text-right">Score</th><th className="px-3 py-3 text-right">Duration</th></tr></thead>
+                  <thead><tr className="text-left text-xs uppercase text-muted-foreground"><th className="px-3 py-3">Date</th><th className="px-3 py-3">Mode</th><th className="px-3 py-3">Topic</th><th className="px-3 py-3 text-center">Questions</th><th className="px-3 py-3 text-right">Score</th><th className="px-3 py-3 text-right">Duration</th><th className="px-3 py-3 text-right">Report</th></tr></thead>
                   <tbody className="divide-y divide-border">
                     {sessions.map((session) => (
                       <tr key={session.session_id} className="hover:bg-muted/50">

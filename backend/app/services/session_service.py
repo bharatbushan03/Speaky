@@ -232,11 +232,12 @@ class SessionService:
             "/rest/v1/sessions",
             params={
                 "select": "*,session_evaluations(id, overall_score, dimensions, created_at),session_responses(id)",
+                "user_id": f"eq.{self.user_id}",
                 "status": "eq.completed",
                 "order": "created_at.desc",
                 "limit": 500,
             },
-        )
+        ) or []
         # Calculate scores, dimensions, and question counts in one pass over
         # the bounded embedded result instead of issuing one query per session.
         total_questions = 0

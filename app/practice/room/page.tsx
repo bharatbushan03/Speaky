@@ -8,12 +8,12 @@ import { SessionDetail } from "@/lib/types/session-api";
 import { sessionsAPI } from "@/lib/api/sessions";
 import { initializePracticeSession, validateRoomSession } from "@/lib/api/practice-session";
 import { getAPIErrorMessage } from "@/lib/api-client";
-import { PracticeAuth } from "@/components/practice/practice-auth";
 import { QuestionDisplay } from "@/components/practice/question-display";
 import { TextAnswerInput } from "@/components/practice/text-answer-input";
 import { VoiceAnswerInput } from "@/components/practice/voice-answer-input";
 import { SessionControls } from "@/components/practice/session-controls";
 import { EvaluationReport } from "@/components/practice/evaluation-report";
+import { RealtimeVoiceInterview } from "@/components/practice/realtime-voice-interview";
 import { Speaker, VolumeX } from "lucide-react";
 import { useAudioPlayer } from "@/lib/hooks/use-audio-player";
 import { Sparkles, ArrowLeft, AlertCircle } from "lucide-react";
@@ -253,6 +253,25 @@ function PracticeRoom() {
     );
   }
 
+  if (session.interaction_mode === "voice") {
+    return (
+      <RealtimeVoiceInterview
+        session={session}
+        onAnswerSubmit={submitAnswer}
+        onNextQuestion={async () => {
+          await navigate(1);
+        }}
+        onCompleteSession={complete}
+        isSaving={isSaving}
+        saveError={saveError}
+        onExit={() => {
+          void cancel();
+          router.push("/practice");
+        }}
+      />
+    );
+  }
+
   const currentQuestion = session.questions[session.current_question_index];
   const currentAnswer = session.responses.find((answer) => answer.question_id === currentQuestion.id);
   const isSubmitted = Boolean(currentAnswer);
@@ -385,9 +404,7 @@ export default function PracticeRoomPage() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-background to-muted/20">
       <div className="container mx-auto px-4 py-6 md:py-8 max-w-5xl">
-        <PracticeAuth>
-          <Suspense fallback={<RoomLoading />}><PracticeRoom /></Suspense>
-        </PracticeAuth>
+        <Suspense fallback={<RoomLoading />}><PracticeRoom /></Suspense>
       </div>
     </div>
   );

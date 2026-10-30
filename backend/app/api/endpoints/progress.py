@@ -4,6 +4,7 @@ from datetime import date, datetime, timedelta
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
+from app.core.errors import APIError
 from app.core.security import AuthenticatedUser, get_current_user
 from app.db.database import get_user_database
 from app.models.schemas import (
@@ -58,33 +59,41 @@ async def get_session_history(
     service: SessionService = Depends(get_progress_service),
 ):
     """Get the authenticated user's session history with filtering and pagination."""
-    query_params = {
+    query_params: dict[str, object] = {
         "select": "*,session_evaluations(overall_score)",
+        "user_id": f"eq.{service.user_id}",
         "order": "created_at.desc",
         "limit": limit,
         "offset": offset,
     }
 
     if mode:
+        if mode not in {"hr", "technical", "viva"}:
+            raise APIError(422, "invalid_input", "Unknown practice mode")
         query_params["mode"] = f"eq.{mode}"
     if topic:
-        query_params["topic_focus"] = f"eq.{topic}"
+        cleaned = "".join(ch for ch in topic if ch.isalnum() or ch in " ._-")[:80].strip()
+        if cleaned:
+            query_params["topic_focus"] = f"ilike.*{cleaned}*"
     if status:
+        if status not in {"completed", "in_progress", "created", "cancelled"}:
+            raise APIError(422, "invalid_input", "Unknown session status")
         query_params["status"] = f"eq.{status}"
-    date_filters = []
-    if start_date:
-        date_filters.append(f"gte.{start_date.isoformat()}T00:00:00Z")
-    if end_date:
-        # Use an exclusive upper bound so the full end date is included.
-        date_filters.append(f"lt.{(end_date + timedelta(days=1)).isoformat()}T00:00:00Z")
-    if date_filters:
-        query_params["created_at"] = ",".join(date_filters)
+    start_bound = f"{start_date.isoformat()}T00:00:00Z" if start_date else None
+    # Exclusive upper bound so the full end date is included.
+    end_bound = f"{(end_date + timedelta(days=1)).isoformat()}T00:00:00Z" if end_date else None
+    if start_bound and end_bound:
+        query_params["and"] = f"(created_at.gte.{start_bound},created_at.lt.{end_bound})"
+    elif start_bound:
+        query_params["created_at"] = f"gte.{start_bound}"
+    elif end_bound:
+        query_params["created_at"] = f"lt.{end_bound}"
 
     rows = await service.db.request(
         "GET",
         "/rest/v1/sessions",
         params=query_params,
-    )
+    ) or []
 
     history: list[SessionHistoryItem] = []
     for row in rows:
@@ -143,11 +152,12 @@ async def get_performance_trends(
         "/rest/v1/sessions",
         params={
             "select": "*,session_evaluations(overall_score, dimensions, created_at)",
+            "user_id": f"eq.{service.user_id}",
             "status": "eq.completed",
             "order": "created_at",
             "limit": 100,
         },
-    )
+    ) or []
 
     return await service.get_performance_trends(rows)
 
@@ -166,10 +176,11 @@ async def get_personalized_recommendations(
         "/rest/v1/sessions",
         params={
             "select": "*,session_evaluations(overall_score, dimensions, answer_evaluations(*,response_evaluations(*,corrections,explanations,strengths,improvements,retry_recommendations))),responses(*,question_id,answer_text)",
+            "user_id": f"eq.{service.user_id}",
             "status": "eq.completed",
             "order": "created_at.desc",
             "limit": 50,
         },
-    )
+    ) or []
 
     return await service.get_personalized_recommendations(rows)

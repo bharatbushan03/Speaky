@@ -1,7 +1,6 @@
 "use client";
 
 import { SessionConfigForm } from "@/components/practice/session-config-form";
-import { PracticeAuth } from "@/components/practice/practice-auth";
 import { usePracticeSetup } from "@/components/practice/use-practice-setup";
 import { GraduationCap, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -38,10 +37,9 @@ export default function AcademicVivaSetupPage() {
           </div>
         </div>
 
+        {/* Configuration Form — no auth gate */}
         <div className="max-w-3xl mx-auto">
-          <PracticeAuth>
-            <SessionConfigForm mode="viva" onStartSession={startSession} isStarting={isStarting} startError={startError} />
-          </PracticeAuth>
+          <SessionConfigForm mode="viva" onStartSession={startSession} isStarting={isStarting} startError={startError} />
         </div>
       </div>
     </div>

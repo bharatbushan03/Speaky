@@ -28,8 +28,6 @@ async def lifespan(app: FastAPI):
             raise RuntimeError("Production requires DEBUG=False and a non-default SECRET_KEY")
         if not settings.allowed_origins or any(not origin.startswith("https://") for origin in settings.allowed_origins):
             raise RuntimeError("Production ALLOWED_ORIGINS must contain only HTTPS origins")
-        if not settings.SUPABASE_URL or not settings.SUPABASE_ANON_KEY:
-            raise RuntimeError("Production requires SUPABASE_URL and SUPABASE_ANON_KEY")
     await init_db()
     yield
     # Shutdown

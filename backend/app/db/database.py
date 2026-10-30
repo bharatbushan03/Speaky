@@ -34,11 +34,17 @@ def get_supabase_client() -> Client:
 
 
 class UserDatabase:
-    """Small async PostgREST client authenticated as one Supabase user."""
+    """PostgREST client that sends the signed-in user's access token.
+
+    The anon key is the API key. The user token is the bearer token, so RLS
+    sees auth.uid(). The service-role key is never used here.
+    """
 
     def __init__(self, access_token: str) -> None:
         if not settings.SUPABASE_URL or not settings.SUPABASE_ANON_KEY:
             raise APIError(503, "database_not_configured", "Database is not configured")
+        if not access_token:
+            raise APIError(401, "authentication_required", "Please sign in again to continue.")
         self.access_token = access_token
 
     async def request(

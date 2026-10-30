@@ -2,77 +2,52 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Button } from "@/components/ui/button";
 import { GraduationCap } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { useAuth } from "@/components/auth/auth-provider";
 
 export function Navbar() {
   const pathname = usePathname();
+  const { session, loading, signOut } = useAuth();
 
-  const isActive = (path: string) => pathname === path;
+  const active = (path: string) =>
+    path === "/" ? pathname === "/" : pathname === path || pathname.startsWith(`${path}/`);
+
+  const linkClass = (path: string) =>
+    cn("font-medium transition-colors hover:text-primary", active(path) ? "text-foreground" : "text-muted-foreground");
 
   return (
-    <nav className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-50">
+    <nav className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container mx-auto px-4">
-        <div className="flex h-16 items-center justify-between">
-          <Link href="/" className="flex items-center gap-2 font-bold text-lg">
-            <GraduationCap className="h-6 w-6 text-primary" />
-            <span>SpeakReady AI</span>
+        <div className="flex h-14 items-center justify-between gap-4">
+          <Link href="/" className="flex items-center gap-2 text-lg font-bold">
+            <GraduationCap className="h-5 w-5 text-primary" />
+            <span>SpeakReady</span>
           </Link>
 
-          <div className="hidden md:flex items-center gap-6">
-            <Link
-              href="/"
-              className={cn(
-                "text-sm font-medium transition-colors hover:text-primary",
-                isActive("/") ? "text-foreground" : "text-muted-foreground"
-              )}
-            >
-              Home
-            </Link>
-            <Link
-              href="/dashboard"
-              className={cn(
-                "text-sm font-medium transition-colors hover:text-primary",
-                isActive("/dashboard") ? "text-foreground" : "text-muted-foreground"
-              )}
-            >
-              Dashboard
-            </Link>
-            <Link
-              href="/practice"
-              className={cn(
-                "text-sm font-medium transition-colors hover:text-primary",
-                isActive("/practice") ? "text-foreground" : "text-muted-foreground"
-              )}
-            >
-              Practice
-            </Link>
-            <Link
-              href="/session-history"
-              className={cn(
-                "text-sm font-medium transition-colors hover:text-primary",
-                isActive("/session-history") ? "text-foreground" : "text-muted-foreground"
-              )}
-            >
-              History
-            </Link>
+          <div className="flex flex-wrap items-center justify-end gap-4 text-sm">
+            <Link href="/" className={linkClass("/")}>Home</Link>
+            <Link href="/practice" className={linkClass("/practice")}>Practice</Link>
+            {session && (
+              <>
+                <Link href="/dashboard" className={linkClass("/dashboard")}>Dashboard</Link>
+                <Link href="/session-history" className={linkClass("/session-history")}>History</Link>
+              </>
+            )}
+            {loading ? (
+              <span className="text-muted-foreground">...</span>
+            ) : session ? (
+              <>
+                <span className="hidden max-w-[180px] truncate text-muted-foreground sm:inline">
+                  {session.user.email}
+                </span>
+                <Button type="button" variant="outline" size="sm" onClick={() => void signOut()}>Sign out</Button>
+              </>
+            ) : (
+              <Button asChild size="sm"><Link href="/login">Sign in</Link></Button>
+            )}
           </div>
-
-          <div className="flex items-center gap-4">
-            <Button variant="ghost" size="sm" asChild className="hidden md:inline-flex">
-              <Link href="/dashboard">Sign In</Link>
-            </Button>
-            <Button size="sm" asChild>
-              <Link href="/practice">Start Free</Link>
-            </Button>
-          </div>
-        </div>
-        <div className="flex items-center gap-5 overflow-x-auto pb-3 text-sm md:hidden">
-          <Link href="/" className="whitespace-nowrap text-muted-foreground hover:text-foreground">Home</Link>
-          <Link href="/dashboard" className="whitespace-nowrap text-muted-foreground hover:text-foreground">Dashboard</Link>
-          <Link href="/practice" className="whitespace-nowrap text-muted-foreground hover:text-foreground">Practice</Link>
-          <Link href="/session-history" className="whitespace-nowrap text-muted-foreground hover:text-foreground">History</Link>
         </div>
       </div>
     </nav>

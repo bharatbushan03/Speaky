@@ -23,7 +23,8 @@ export function getAPIErrorMessage(error: unknown): string {
   return "Unable to save or load the session. Please try again.";
 }
 
-// Create axios instance with default config
+// Create axios instance with default config. Built on first use so a missing
+// env var does not crash pages that never call the API (including next build).
 const createAPIClient = (): AxiosInstance => {
   const apiURL = process.env.NEXT_PUBLIC_API_URL;
   if (!apiURL) {
@@ -38,25 +39,18 @@ const createAPIClient = (): AxiosInstance => {
     },
   });
 
-  // Request interceptor - add auth tokens, etc.
   client.interceptors.request.use(
     async (config) => {
-      // Health checks remain public; session requests always use the current,
-      // refreshable Supabase session rather than a separately stored token.
-      if (config.url?.startsWith("/api/v1/health")) return config;
       const configurationError = getSupabaseConfigurationError();
       if (configurationError) {
-        throw { message: configurationError, status: 0, code: "auth_configuration" } satisfies APIError;
+        return Promise.reject({ message: configurationError, status: 503 });
       }
       const { data, error } = await getSupabaseClient().auth.getSession();
-      if (error || !data.session?.access_token) {
-        throw {
-          message: "Please sign in to access your practice session.",
-          status: 401,
-          code: "authentication_required",
-        } satisfies APIError;
+      const token = data.session?.access_token;
+      if (error || !token) {
+        return Promise.reject({ message: "Please sign in again to continue.", status: 401 });
       }
-      config.headers.Authorization = `Bearer ${data.session.access_token}`;
+      config.headers.Authorization = `Bearer ${token}`;
       return config;
     },
     (error) => {
@@ -108,8 +102,21 @@ const createAPIClient = (): AxiosInstance => {
   return client;
 };
 
-// Create and export the API client
-export const apiClient = createAPIClient();
+let apiClientInstance: AxiosInstance | undefined;
+
+function getAPIClient(): AxiosInstance {
+  if (!apiClientInstance) apiClientInstance = createAPIClient();
+  return apiClientInstance;
+}
+
+// Preserve `apiClient.get` / `apiClient.post` without creating the client at import time.
+export const apiClient = new Proxy({} as AxiosInstance, {
+  get(_target, property) {
+    const instance = getAPIClient();
+    const value = Reflect.get(instance, property, instance);
+    return typeof value === "function" ? value.bind(instance) : value;
+  },
+});
 
 // Helper function for GET requests
 export const get = async <T = any>(

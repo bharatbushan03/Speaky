@@ -18,7 +18,6 @@ from app.core.config import settings
 from app.core.errors import APIError
 from app.models.schemas import GeneratedQuestion, SessionConfigWithDetails
 from app.services.ai_interfaces import QuestionGenerator, UnconfiguredQuestionGenerator
-from app.services.giani_service import get_giani_question_generator
 
 logger = logging.getLogger(__name__)
 
@@ -313,7 +312,11 @@ def get_question_generator() -> QuestionGenerator:
             timeout=settings.AI_REQUEST_TIMEOUT_SECONDS,
         )
     if provider == "giani":
-        return get_giani_question_generator()
+        # ponytail: no public Giani generation API to call. Fail closed until one exists.
+        return UnconfiguredQuestionGenerator(
+            code="giani_api_not_configured",
+            detail="Giani question generation is not available",
+        )
     return UnconfiguredQuestionGenerator(
         code="question_generation_not_configured",
         detail=f"Unsupported AI provider: {settings.AI_PROVIDER}",

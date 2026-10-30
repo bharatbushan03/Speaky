@@ -81,7 +81,7 @@ export const EXPLANATION_LANGUAGES = [
 export const DEFAULT_CONFIG: Partial<PracticeSessionConfig> = {
   proficiencyLevel: "intermediate",
   difficulty: "medium",
-  interactionMode: "text",
+  interactionMode: "voice",
   questionCount: 5,
   explanationLanguage: "english",
 };
