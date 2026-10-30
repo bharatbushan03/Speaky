@@ -1,8 +1,12 @@
+# fly.toml app configuration file generated for speaky-backend on 2026-10-30T23:14:40+05:30
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
 app = 'speaky-backend'
-primary_region = 'sin'  # Singapore — closest to India
+primary_region = 'sin'
 
 [build]
-
 [http_service]
   internal_port = 8080
   force_https = true
@@ -12,6 +16,5 @@ primary_region = 'sin'  # Singapore — closest to India
 
 [[vm]]
   memory = '256mb'
-  cpu_kind = 'shared'
   cpus = 1
-
+  memory_mb = 256

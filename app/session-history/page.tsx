@@ -45,7 +45,7 @@ export default function SessionHistoryPage() {
     setError(null);
     sessionsAPI.getSessionHistory(filters)
       .then((result) => {
-        if (!controller.signal.aborted) setSessions(result);
+        if (!controller.signal.aborted) setSessions(Array.isArray(result) ? result : []);
       })
       .catch((caught) => {
         if (!controller.signal.aborted) setError(getAPIErrorMessage(caught));

@@ -253,8 +253,8 @@ class SessionService:
             if created_at:
                 practice_dates.add(str(created_at)[:10])
             eval_row = session_row.get("session_evaluations")
-            if eval_row and len(eval_row) > 0:
-                eval_data = eval_row[0]
+            eval_data = eval_row[0] if isinstance(eval_row, list) and eval_row else eval_row if isinstance(eval_row, dict) else None
+            if eval_data:
                 overall = eval_data.get("overall_score")
                 if overall is not None:
                     score_sum += float(overall)
@@ -263,9 +263,9 @@ class SessionService:
             total_questions += len(session_row.get("session_responses") or [])
 
             # Collect dimension scores from evaluations
-            if eval_row and len(eval_row) > 0:
-                dims = eval_row[0].get("dimensions")
-                if dims:
+            if eval_data:
+                dims = eval_data.get("dimensions")
+                if dims and isinstance(dims, dict):
                     for dim_name, dim_data in dims.items():
                         if isinstance(dim_data, dict) and dim_data.get("available") and dim_data.get("score") is not None:
                             score = float(dim_data["score"])
@@ -341,13 +341,13 @@ class SessionService:
                 continue
 
             eval_row = session_row.get("session_evaluations")
+            eval_data = eval_row[0] if isinstance(eval_row, list) and eval_row else eval_row if isinstance(eval_row, dict) else None
             overall = None
             grammar = None
             vocabulary = None
             fluency = None
 
-            if eval_row and len(eval_row) > 0:
-                eval_data = eval_row[0]
+            if eval_data:
                 overall = eval_data.get("overall_score")
 
                 dims = eval_data.get("dimensions")
@@ -391,8 +391,8 @@ class SessionService:
 
         for session_row in sessions_rows:
             eval_row = session_row.get("session_evaluations")
-            if eval_row and len(eval_row) > 0:
-                eval_data = eval_row[0]
+            eval_data = eval_row[0] if isinstance(eval_row, list) and eval_row else eval_row if isinstance(eval_row, dict) else None
+            if eval_data:
                 ae_list = eval_data.get("answer_evaluations", [])
                 # Get the response_evaluations for each answer evaluation
                 for ae in ae_list:
@@ -459,8 +459,9 @@ class SessionService:
         low_score_sessions = []
         for session_row in sessions_rows:
             eval_row = session_row.get("session_evaluations")
-            if eval_row and len(eval_row) > 0:
-                overall = eval_row[0].get("overall_score")
+            eval_data = eval_row[0] if isinstance(eval_row, list) and eval_row else eval_row if isinstance(eval_row, dict) else None
+            if eval_data:
+                overall = eval_data.get("overall_score")
                 if overall is not None and float(overall) < 7.0:
                     low_score_sessions.append(session_row.get("id"))
 
@@ -479,11 +480,13 @@ class SessionService:
         vocab_scores = []
         for session_row in sessions_rows:
             eval_row = session_row.get("session_evaluations")
-            if eval_row and len(eval_row) > 0:
-                dims = eval_row[0].get("dimensions", {})
-                vocab = dims.get("vocabulary", {}).get("score")
-                if vocab is not None:
-                    vocab_scores.append(float(vocab))
+            eval_data = eval_row[0] if isinstance(eval_row, list) and eval_row else eval_row if isinstance(eval_row, dict) else None
+            if eval_data:
+                dims = eval_data.get("dimensions") or {}
+                if isinstance(dims, dict):
+                    vocab = dims.get("vocabulary", {}).get("score") if isinstance(dims.get("vocabulary"), dict) else None
+                    if vocab is not None:
+                        vocab_scores.append(float(vocab))
 
         if vocab_scores and sum(1 for s in vocab_scores if s < 7.0) > len(vocab_scores) * 0.5:
             recommendations.append(
@@ -500,11 +503,13 @@ class SessionService:
         fluency_scores = []
         for session_row in sessions_rows:
             eval_row = session_row.get("session_evaluations")
-            if eval_row and len(eval_row) > 0:
-                dims = eval_row[0].get("dimensions", {})
-                flu = dims.get("spoken_fluency", {})
-                if flu.get("available") and flu.get("score") is not None:
-                    fluency_scores.append(float(flu["score"]))
+            eval_data = eval_row[0] if isinstance(eval_row, list) and eval_row else eval_row if isinstance(eval_row, dict) else None
+            if eval_data:
+                dims = eval_data.get("dimensions") or {}
+                if isinstance(dims, dict):
+                    flu = dims.get("spoken_fluency", {}) if isinstance(dims.get("spoken_fluency"), dict) else {}
+                    if flu.get("available") and flu.get("score") is not None:
+                        fluency_scores.append(float(flu["score"]))
 
         if fluency_scores and sum(1 for s in fluency_scores if s < 7.0) > len(fluency_scores) * 0.5:
             recommendations.append(

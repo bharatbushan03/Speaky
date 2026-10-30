@@ -62,14 +62,14 @@ export default function DashboardPage() {
         sessionsAPI.getSessionHistory({ limit: 5, offset: 0 }),
       ]);
       setData({
-        totalSessions: summary.total_sessions,
-        averageScore: summary.average_score,
-        grammarScore: summary.grammar_score,
-        vocabularyScore: summary.vocabulary_score,
-        fluencyScore: summary.fluency_score,
-        currentStreak: summary.current_streak,
-        longestStreak: summary.longest_streak,
-        recentSessions,
+        totalSessions: summary?.total_sessions ?? 0,
+        averageScore: summary?.average_score ?? null,
+        grammarScore: summary?.grammar_score ?? null,
+        vocabularyScore: summary?.vocabulary_score ?? null,
+        fluencyScore: summary?.fluency_score ?? null,
+        currentStreak: summary?.current_streak ?? 0,
+        longestStreak: summary?.longest_streak ?? 0,
+        recentSessions: Array.isArray(recentSessions) ? recentSessions : [],
       });
     } catch (caught) {
       setError(getAPIErrorMessage(caught));
@@ -93,7 +93,10 @@ export default function DashboardPage() {
   }
   if (!data) return null;
 
-  const practiceMinutes = data.recentSessions.reduce((total, session) => total + (session.duration_minutes || 0), 0);
+  const practiceMinutes = (Array.isArray(data.recentSessions) ? data.recentSessions : []).reduce(
+    (total, session) => total + (session.duration_minutes || 0),
+    0
+  );
   const averagePercentage = data.averageScore === null ? 0 : data.averageScore * 10;
 
   return (

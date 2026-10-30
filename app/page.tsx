@@ -1,3 +1,5 @@
+"use client";
+
 import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -6,7 +8,10 @@ import {
   GraduationCap,
   Globe,
   ArrowRight,
+  LayoutDashboard,
+  History,
 } from "lucide-react";
+import { useAuth } from "@/components/auth/auth-provider";
 
 const practiceOptions = [
   {
@@ -36,19 +41,49 @@ const practiceOptions = [
 ];
 
 export default function Home() {
+  const { session, loading } = useAuth();
+
   return (
     <div className="min-h-[80vh] flex flex-col items-center justify-center px-4 py-12">
-      {/* Simple heading */}
-      <div className="text-center mb-10">
+      {/* Heading & Auth CTA */}
+      <div className="text-center mb-10 max-w-lg">
         <h1 className="text-3xl md:text-4xl font-bold mb-2">
           What would you like to practice?
         </h1>
-        <p className="text-muted-foreground mb-4">
-          Sign in to save sessions, scores, and coaching reports.
-        </p>
-        <Button asChild>
-          <Link href="/login">Sign in</Link>
-        </Button>
+        {loading ? (
+          <div className="h-10 flex items-center justify-center">
+            <span className="text-sm text-muted-foreground animate-pulse">Loading...</span>
+          </div>
+        ) : session ? (
+          <div>
+            <p className="text-muted-foreground mb-4">
+              Welcome back{session.user.email ? `, ${session.user.email}` : ""}! Pick a practice mode below or review your progress.
+            </p>
+            <div className="flex flex-wrap items-center justify-center gap-3">
+              <Button asChild>
+                <Link href="/dashboard">
+                  <LayoutDashboard className="mr-2 h-4 w-4" />
+                  View Dashboard
+                </Link>
+              </Button>
+              <Button variant="outline" asChild>
+                <Link href="/session-history">
+                  <History className="mr-2 h-4 w-4" />
+                  Session History
+                </Link>
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div>
+            <p className="text-muted-foreground mb-4">
+              Sign in to save sessions, scores, and coaching reports.
+            </p>
+            <Button asChild>
+              <Link href="/login">Sign in</Link>
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* Practice mode cards */}

@@ -97,8 +97,8 @@ async def get_session_history(
 
     history: list[SessionHistoryItem] = []
     for row in rows:
-        evaluation_rows = row.get("session_evaluations") or []
-        evaluation = evaluation_rows[0] if isinstance(evaluation_rows, list) and evaluation_rows else {}
+        eval_raw = row.get("session_evaluations")
+        evaluation = eval_raw[0] if isinstance(eval_raw, list) and eval_raw else eval_raw if isinstance(eval_raw, dict) else {}
         created_at = row.get("created_at")
         started_at = row.get("started_at")
         completed_at = row.get("completed_at")
@@ -118,7 +118,7 @@ async def get_session_history(
             question_count=int(row.get("question_count", 0)),
             started_at=started_at,
             completed_at=completed_at,
-            overall_score=evaluation.get("overall_score"),
+            overall_score=evaluation.get("overall_score") if isinstance(evaluation, dict) else None,
             date=str(created_at)[:10] if created_at else "",
             duration_minutes=duration_minutes,
         ))
@@ -175,7 +175,7 @@ async def get_personalized_recommendations(
         "GET",
         "/rest/v1/sessions",
         params={
-            "select": "*,session_evaluations(overall_score, dimensions, answer_evaluations(*,response_evaluations(*,corrections,explanations,strengths,improvements,retry_recommendations))),responses(*,question_id,answer_text)",
+            "select": "*,session_evaluations(overall_score, dimensions, response_evaluations(*,corrections,explanations,strengths,improvements,retry_recommendations)),session_responses(*,question_id,answer_text)",
             "user_id": f"eq.{service.user_id}",
             "status": "eq.completed",
             "order": "created_at.desc",

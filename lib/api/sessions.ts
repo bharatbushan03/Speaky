@@ -110,10 +110,20 @@ export const sessionsAPI = {
     });
     return response.data;
   },
-  getProgressSummary: (): Promise<ProgressSummary> =>
-    get<ProgressSummary>("/api/v1/progress/summary"),
-  getSessionHistory: (filters: Partial<SessionHistoryFilters> = {}): Promise<SessionHistoryItem[]> =>
-    get<SessionHistoryItem[]>("/api/v1/progress/history", { params: filters }),
+  getProgressSummary: async (): Promise<ProgressSummary> => {
+    const data = await get<ProgressSummary>("/api/v1/progress/summary");
+    return data;
+  },
+  getSessionHistory: async (filters: Partial<SessionHistoryFilters> = {}): Promise<SessionHistoryItem[]> => {
+    const params: Record<string, string | number> = {};
+    for (const [key, value] of Object.entries(filters)) {
+      if (value !== null && value !== undefined && value !== "") {
+        params[key] = value;
+      }
+    }
+    const data = await get<SessionHistoryItem[]>("/api/v1/progress/history", { params });
+    return Array.isArray(data) ? data : [];
+  },
   getPerformanceTrends: (): Promise<TrendPoint[]> =>
     get<TrendPoint[]>("/api/v1/progress/trends"),
   getPersonalizedRecommendations: (): Promise<RecommendationItem[]> =>
