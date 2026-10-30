@@ -32,7 +32,7 @@ const createAPIClient = (): AxiosInstance => {
   }
 
   const client = axios.create({
-    baseURL: apiURL,
+    baseURL: apiURL.replace(/\/+$/, ""),
     timeout: 30000,
     headers: {
       "Content-Type": "application/json",
