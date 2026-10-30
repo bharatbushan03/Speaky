@@ -93,7 +93,7 @@ class Settings(BaseSettings):
 
     @property
     def allowed_origins(self) -> List[str]:
-        return [origin.strip() for origin in self.ALLOWED_ORIGINS.split(",") if origin.strip()]
+        return [origin.strip().rstrip("/") for origin in self.ALLOWED_ORIGINS.split(",") if origin.strip()]
 
     @property
     def is_production(self) -> bool:
