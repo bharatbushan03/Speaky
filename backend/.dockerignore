@@ -1,0 +1,7 @@
+# Fly.io ignores these — they're just for local dev
+.env
+__pycache__/
+*.pyc
+.venv/
+.git/
+
