@@ -1,0 +1,48 @@
+{
+  // Worker in front of the FastAPI image. Deploy with: npx wrangler deploy
+  "name": "speakready-api",
+  "main": "cloudflare/index.ts",
+  "compatibility_date": "2026-10-30",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true
+  },
+  "vars": {
+    "ENVIRONMENT": "production",
+    "DEBUG": "False",
+    "LOG_LEVEL": "INFO",
+    "AI_PROVIDER": "mock",
+    "AI_REQUEST_TIMEOUT_SECONDS": "20",
+    "STT_PROVIDER": "mock",
+    "TTS_PROVIDER": "unconfigured",
+    "OPENAI_MODEL": "gpt-4o-mini",
+    "MAX_REQUEST_BODY_BYTES": "1000000",
+    "RATE_LIMIT_REQUESTS": "60",
+    "RATE_LIMIT_WINDOW_SECONDS": "60"
+  },
+  "containers": [
+    {
+      "class_name": "ApiContainer",
+      "scheduling_policy": "durable_object",
+      "images": {
+        "api": {
+          "dockerfile": "./Dockerfile"
+        }
+      }
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "API_CONTAINER",
+        "class_name": "ApiContainer"
+      }
+    ]
+  },
+  "exports": {
+    "ApiContainer": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    }
+  }
+}

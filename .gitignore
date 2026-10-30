@@ -32,6 +32,10 @@ yarn-error.log*
 # vercel
 .vercel
 
+# cloudflare
+.dev.vars
+.wrangler/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
@@ -76,3 +80,26 @@ backend/.env
 backend/__pycache__/
 backend/*.db
 backend/*.sqlite
+
+# Agent scratch output
+build_errors.txt
+tsc_*.txt
+tsc_output.txt
+tsc_output2.txt
+typecheck_output.txt
+tree.txt
+tree_all.txt
+test_output.txt
+test_output2.txt
+test_final.txt
+test_summary.txt
+*_test_output.txt
+giani_test_output.txt
+
+# Supabase CLI cache
+supabase/.temp/
+
+# Local agent state
+.cursor/
+.agents/
+agent-transcripts/

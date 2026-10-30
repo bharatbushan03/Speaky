@@ -1,0 +1,14 @@
+# Local `npx wrangler dev` only. Copy to .dev.vars. Do not commit .dev.vars.
+# Deployed values are Worker secrets: npx wrangler secret put SECRET_KEY
+# Repeat for SUPABASE_URL, SUPABASE_ANON_KEY, and ALLOWED_ORIGINS.
+# Optional: SUPABASE_KEY, OPENAI_API_KEY, AZURE_OPENAI_API_KEY, DATABASE_URL.
+
+ENVIRONMENT=development
+DEBUG=False
+SECRET_KEY=local-only-secret-key-at-least-32-chars
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_ANON_KEY=your_supabase_anon_key
+ALLOWED_ORIGINS=http://localhost:3000
+AI_PROVIDER=mock
+STT_PROVIDER=mock
+TTS_PROVIDER=unconfigured
