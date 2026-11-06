@@ -32,9 +32,10 @@ yarn-error.log*
 # vercel
 .vercel
 
-# cloudflare
-.dev.vars
-.wrangler/
+# Azure Developer CLI writes subscription secrets into the environment folder.
+.azure/**
+!.azure/deployment-plan.md
+infra/main.json
 
 # typescript
 *.tsbuildinfo

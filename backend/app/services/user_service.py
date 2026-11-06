@@ -1,7 +1,6 @@
 from typing import Optional
 from app.models.schemas import UserCreate, UserResponse
 from app.db.database import get_supabase_client
-from app.core.security import get_password_hash
 
 
 class UserService:
@@ -9,26 +8,10 @@ class UserService:
         self.db = get_supabase_client()
 
     async def create_user(self, user_data: UserCreate) -> UserResponse:
-        """Create a new user."""
-        # Check if user already exists
-        existing = self.db.table("users").select("id").eq("email", user_data.email).execute()
-        if existing.data:
-            raise ValueError("User with this email already exists")
-
-        # Hash password
-        hashed_password = get_password_hash(user_data.password)
-
-        # Insert user
-        result = self.db.table("users").insert({
-            "email": user_data.email,
-            "full_name": user_data.full_name,
-            "password_hash": hashed_password,
-        }).execute()
-
-        if not result.data:
-            raise Exception("Failed to create user")
-
-        return UserResponse(**result.data[0])
+        """Accounts are created by Supabase Auth, not a local password table."""
+        raise RuntimeError(
+            f"Accounts are created through Supabase Auth, not a local password for {user_data.email}."
+        )
 
     async def get_user(self, user_id: str) -> Optional[UserResponse]:
         """Get user by ID."""

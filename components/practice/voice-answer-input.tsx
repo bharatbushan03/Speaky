@@ -106,6 +106,12 @@ export function VoiceAnswerInput({
           setError(recognitionError);
           setRecordingState(recognitionError.type === "permission_denied" ? "permission_denied" : "error");
         },
+        () => {
+          if (!mountedRef.current || recognitionRef.current !== service) return;
+          recognitionRef.current = null;
+          setInterimTranscript("");
+          setRecordingState("idle");
+        },
       );
       if (mountedRef.current && recognitionRef.current === service) setRecordingState("recording");
     } catch (caught) {

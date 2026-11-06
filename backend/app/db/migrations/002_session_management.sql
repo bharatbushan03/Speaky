@@ -7,7 +7,7 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -- Match Python str.strip() whitespace even when the database locale's POSIX
 -- space class omits nonbreaking spaces and other Unicode whitespace.
-CREATE FUNCTION public.practice_session_text_nonblank(p_text text)
+CREATE OR REPLACE FUNCTION public.practice_session_text_nonblank(p_text text)
 RETURNS boolean
 LANGUAGE sql
 IMMUTABLE
@@ -20,7 +20,7 @@ $$;
 
 -- Shared by the table constraint and RPC validation. JSON null is normalized
 -- to SQL NULL by the RPC; non-null hints must be a bounded array of strings.
-CREATE FUNCTION public.practice_session_hints_valid(p_hints jsonb)
+CREATE OR REPLACE FUNCTION public.practice_session_hints_valid(p_hints jsonb)
 RETURNS boolean
 LANGUAGE sql
 IMMUTABLE
@@ -136,7 +136,7 @@ CREATE INDEX session_responses_session_created_idx
 CREATE INDEX session_responses_question_session_idx
     ON public.session_responses (question_id, session_id);
 
-CREATE FUNCTION public.touch_practice_session_updated_at()
+CREATE OR REPLACE FUNCTION public.touch_practice_session_updated_at()
 RETURNS trigger
 LANGUAGE plpgsql
 SET search_path = pg_catalog, public
@@ -184,7 +184,7 @@ REVOKE ALL PRIVILEGES ON TABLE public.sessions, public.session_questions, public
 GRANT SELECT ON TABLE public.sessions, public.session_questions, public.session_responses
     TO authenticated;
 
-CREATE FUNCTION public.manage_practice_session(
+CREATE OR REPLACE FUNCTION public.manage_practice_session(
     p_action text,
     p_session_id uuid DEFAULT NULL,
     p_payload jsonb DEFAULT '{}'::jsonb

@@ -3,10 +3,10 @@
 SpeakReady is an English communication coach for HR interviews, technical interviews, and academic vivas. You sign in, answer questions by text or microphone, and keep scores, reports, and history on your account.
 
 ```text
-Browser (Next.js on Vercel)
+Browser (Next.js on Azure Container Apps)
     │  Supabase access token
     ▼
-Cloudflare Worker → FastAPI container
+FastAPI on Azure Container Apps
     │  user token + anon key, row-level security
     ▼
 Supabase Auth + PostgreSQL
@@ -23,10 +23,10 @@ Questions and scoring use a `mock` provider until you set OpenAI or Azure OpenAI
 
 ## Requirements
 
-- Node.js 22 (see `.nvmrc`). Vercel builds with `22.x`.
+- Node.js 22 (see `package.json`). The Azure web image uses Node 22.
 - Python 3.11.9 (see `.python-version`).
 - A Supabase project.
-- Docker, only when you deploy the API to Cloudflare or apply migrations with the Docker `psql` commands in `backend/app/db/README.md`.
+- Docker, only when applying migrations with the Docker `psql` commands in `backend/app/db/README.md`.
 
 ## Run it locally
 
@@ -69,10 +69,10 @@ Sign-in calls Supabase from the browser. Session and progress routes then send `
 
 1. Create a project and copy the project URL and anon key into both env files.
 2. Under Authentication → Providers, enable Email. Enable Google and GitHub if you want those buttons.
-3. Add redirect URLs:
-   - `http://localhost:3000/auth/callback`
-   - `http://localhost:3000/auth/update-password`
-   - the same two paths on your Vercel domain after the frontend is deployed
+3. Under Authentication → URL Configuration, keep the production Site URL and add these Redirect URLs. Supabase sends Google sign-in and email confirmation to the Site URL when the current address is missing from this list:
+   - `http://localhost:3000/**`
+   - `http://127.0.0.1:3000/**`
+   - the Azure web host from `WEB_URL`, with `/**`
 4. Apply the SQL migrations in order. The app does not migrate itself.
 
 ```bash
@@ -85,35 +85,39 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/app/db/migrations/005_lock_do
 
 Windows `psql` examples are in `backend/app/db/README.md`. Stop on the first error. Do not re-run a migration that already succeeded.
 
-## Deploy
+## Deploy on Azure with GitHub Actions
 
-Deploy the API before the frontend so you have a Worker URL for `NEXT_PUBLIC_API_URL`.
+Push to `main` runs the tests, then provisions and deploys both containers. The workflow is `.github/workflows/azure-dev.yml`. Pull requests only run the tests. Deployment stays skipped until `AZURE_CLIENT_ID` is set, so the pipeline is safe to merge before Azure is connected.
 
-### API on Cloudflare
+Create an app registration and a federated credential whose subject is `repo:<owner>/<repo>:ref:refs/heads/main`. Give that identity Contributor and User Access Administrator on the subscription. Contributor creates the resources. User Access Administrator is required because the template assigns the registry pull role and the Key Vault role.
 
-Docker must be running. From the repository root, set the required secrets, then deploy:
+Repository variables:
 
-```bash
-npx wrangler secret put SECRET_KEY
-npx wrangler secret put SUPABASE_URL
-npx wrangler secret put SUPABASE_ANON_KEY
-npx wrangler secret put ALLOWED_ORIGINS
-npx wrangler deploy
-```
+| Name | Example |
+| --- | --- |
+| `AZURE_CLIENT_ID` | Application (client) ID |
+| `AZURE_TENANT_ID` | Directory (tenant) ID |
+| `AZURE_SUBSCRIPTION_ID` | Subscription ID |
+| `AZURE_ENV_NAME` | `speakready` |
+| `AZURE_LOCATION` | `centralindia` |
+| `AI_PROVIDER` | `mock` |
 
-`SECRET_KEY` is a random string of at least 32 characters. It is not a Supabase token. `ALLOWED_ORIGINS` is the exact frontend origin, for example `https://your-app.vercel.app`. Production origins must be `https`.
+Repository secrets:
 
-Optional secrets, only if you use them: `OPENAI_API_KEY`, `SUPABASE_KEY`, `AZURE_OPENAI_API_KEY`, `DATABASE_URL`. Names match `backend/.env.example`. Non-secret defaults such as `AI_PROVIDER=mock` live in `wrangler.jsonc`. Change that file and deploy again when you switch to `openai` or `azure_openai`.
+| Name | Value |
+| --- | --- |
+| `SECRET_KEY` | Random string, at least 32 characters |
+| `SUPABASE_URL` | `https://<project>.supabase.co` |
+| `SUPABASE_ANON_KEY` | Supabase anon key |
 
-The Worker URL from the deploy output is the public API. Check `https://<worker>/health` before pointing the site at it.
+Leave the OpenAI secrets empty while `AI_PROVIDER` is `mock`. For Azure OpenAI, set the variable `AI_PROVIDER` to `azure_openai`, the variable `AZURE_OPENAI_ENDPOINT`, the variable `AZURE_OPENAI_DEPLOYMENT`, and the secret `AZURE_OPENAI_API_KEY`.
 
-### Frontend on Vercel
+Run the **CI/CD** workflow from the Actions tab, or push to `main`. The run prints `WEB_URL` and `API_URL`. Add these Supabase redirect URLs:
 
-Import this repository. The framework is Next.js. `vercel.json` already sets `npm ci` and `npm run build`. Node is `22.x` from `package.json`.
+- `https://<web-host>/auth/callback`
+- `https://<web-host>/auth/update-password`
 
-Set the three `NEXT_PUBLIC_` variables for Production and Preview. `NEXT_PUBLIC_API_URL` is the Worker URL, with no trailing slash.
-
-After the site has a domain, add that origin to `ALLOWED_ORIGINS` (`npx wrangler secret put ALLOWED_ORIGINS`) and to the Supabase redirect URLs, then deploy the API again.
+Check `https://<api-host>/health` before signing in. Do not put the Supabase service-role key in `SUPABASE_ANON_KEY`.
 
 ## AI providers
 
@@ -150,7 +154,7 @@ These tests do not call Supabase or a paid model. Before relying on production, 
 - **CORS error.** `ALLOWED_ORIGINS` must be the exact site origin, including `https://` and with no path.
 - **Questions fail.** With `AI_PROVIDER=openai` or `azure_openai`, the matching key, model, or deployment is missing or rejected. `mock` still works without them.
 - **OAuth returns to an error page.** The provider is disabled in Supabase, or the callback URL is not in the redirect allowlist.
-- **Container is not ready.** Docker was not running at deploy time, a required Worker secret is missing, or the first container start is still finishing. `GET /health` should return `{"status":"ok"}`.
+- **Backend is not ready.** Check the Container App logs for the `api` service and confirm `SECRET_KEY`, `SUPABASE_URL`, and `SUPABASE_ANON_KEY` are set. `GET /health` should return `{"status":"ok"}`.
 
 ## Project map
 
@@ -160,8 +164,8 @@ These tests do not call Supabase or a paid model. Before relying on production, 
 | `lib/api-client.ts` | Attaches the Supabase access token to API calls |
 | `backend/main.py` | FastAPI app, CORS, and request limits |
 | `backend/app/db/migrations/` | Schema, RLS, and session RPCs, applied in numeric order |
-| `Dockerfile` | API image used by Cloudflare |
-| `wrangler.jsonc`, `cloudflare/index.ts` | Worker that starts the container and forwards requests |
-| `vercel.json` | Frontend install and build commands |
+| `backend/requirements.txt` | Python dependencies installed in the API image |
+| `azure.yaml`, `infra/` | Azure Container Apps deployment |
+| `Dockerfile`, `backend/Dockerfile` | Web and API images |
 
 Session, progress, and feedback routes require a Supabase bearer token. The full route list is at `http://localhost:8000/docs` while the API is running.

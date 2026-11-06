@@ -146,10 +146,20 @@ async def init_db():
     if not settings.SUPABASE_URL or not settings.SUPABASE_KEY:
         logger.warning("Legacy Supabase service-role database is not configured")
         return
+    # New Supabase secret keys are not JWTs. The practice API does not use this
+    # legacy client; it sends SUPABASE_ANON_KEY with the signed-in user's token.
+    if not settings.SUPABASE_KEY.strip().startswith("eyJ"):
+        logger.info("Session data uses the Supabase anon key. The legacy service-role check was skipped.")
+        return
     try:
         client = get_supabase_client()
         # Test connection
         result = client.table("users").select("id").limit(1).execute()
         logger.info("Successfully connected to Supabase")
     except Exception as e:
-        logger.warning("Database connection warning: %s", e)
+        logger.warning(
+            "Supabase connectivity check failed (%s). "
+            "If using mock or local development without an active Supabase project, "
+            "this warning can be safely ignored until a valid service key is added in backend/.env.",
+            e,
+        )

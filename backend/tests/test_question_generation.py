@@ -106,8 +106,59 @@ class MockProviderTests(unittest.IsolatedAsyncioTestCase):
         )
         generated = await MockQuestionGenerator().generate_question(session)
         self.assertIn("follow-up", generated.text.lower())
+        self.assertIn("versioning", generated.text.lower())
+        self.assertIn("backend engineer", generated.text.lower())
+        self.assertIn("distributed systems", generated.text.lower())
+        self.assertNotEqual(generated.text, first["text"])
         self.assertTrue(generated.evaluation_criteria)
         self.assertTrue(generated.hints)
+
+    async def test_questions_change_with_subject_topic_and_turn(self):
+        generator = MockQuestionGenerator()
+
+        def make_session(**overrides) -> SessionConfigWithDetails:
+            payload = session_payload()
+            payload.update(overrides)
+            return SessionConfigWithDetails.model_validate(payload)
+
+        english_travel = make_session(
+            mode="hr",
+            job_role="English Communication & Fluency Practice",
+            subject=None,
+            topic_focus="English Practice: Ordering food, asking for directions, exploring places, and social interactions abroad",
+        )
+        opening = await generator.generate_question(english_travel)
+        self.assertIn("ordering food", opening.text.lower())
+        self.assertNotIn("english communication", opening.text.lower())
+        self.assertNotIn("tell me a bit about your experience", opening.text.lower())
+
+        english_travel.questions = [
+            QuestionResponse.model_validate(
+                question_payload(english_travel.id, 0, opening.text)
+            )
+        ]
+        follow_up = await generator.generate_question(english_travel)
+        self.assertNotEqual(opening.text, follow_up.text)
+        self.assertIn("ordering food", follow_up.text.lower())
+
+        economics = await generator.generate_question(
+            make_session(mode="viva", job_role=None, subject="Economics", topic_focus=None)
+        )
+        biology = await generator.generate_question(
+            make_session(mode="viva", job_role=None, subject="Biotechnology", topic_focus=None)
+        )
+        self.assertIn("economics", economics.text.lower())
+        self.assertIn("biotechnology", biology.text.lower())
+        self.assertNotIn("what motivated you to study", economics.text.lower())
+        self.assertNotIn("what motivated you to study", biology.text.lower())
+
+        openings = set()
+        for _ in range(8):
+            question = await generator.generate_question(
+                make_session(mode="technical", job_role="Data Scientist", topic_focus="model evaluation")
+            )
+            openings.add(question.text)
+        self.assertGreater(len(openings), 1)
 
 
 class OpenAIProviderTests(unittest.IsolatedAsyncioTestCase):

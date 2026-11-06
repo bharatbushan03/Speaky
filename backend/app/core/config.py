@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     
     # CORS Settings
     # A comma-separated value keeps .env and container configuration simple.
-    ALLOWED_ORIGINS: str = "http://localhost:3000,http://localhost:3001"
+    ALLOWED_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001"
     
     # Database Settings (Supabase PostgreSQL)
     DATABASE_URL: str = ""
@@ -33,7 +33,7 @@ class Settings(BaseSettings):
     # Giani is intentionally not enabled: no official public generation API
     # could be verified.
     AI_PROVIDER: str = "openai"  # mock, openai, azure_openai, giani
-    AI_REQUEST_TIMEOUT_SECONDS: float = Field(default=20.0, gt=0, le=120)
+    AI_REQUEST_TIMEOUT_SECONDS: float = Field(default=60.0, gt=0, le=120)
     EVALUATION_WEIGHTS_JSON: str = (
         '{"grammar":0.15,"vocabulary":0.10,"clarity":0.15,"coherence":0.15,'
         '"relevance":0.15,"interview_technique":0.15,"technical_correctness":0.15,'

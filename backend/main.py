@@ -39,6 +39,9 @@ app = FastAPI(
     description="AI-powered English communication coaching platform API",
     version="0.1.0",
     lifespan=lifespan,
+    docs_url=None if settings.is_production else "/docs",
+    redoc_url=None if settings.is_production else "/redoc",
+    openapi_url=None if settings.is_production else "/openapi.json",
 )
 
 _rate_limit_events: dict[str, deque[float]] = defaultdict(deque)
@@ -68,7 +71,8 @@ async def request_safety_middleware(request: Request, call_next):
             )
 
     now = time.monotonic()
-    key = request.client.host if request.client else "unknown"
+    key = _client_key(request)
+    _prune_rate_limits(now)
     events = _rate_limit_events[key]
     while events and now - events[0] >= settings.RATE_LIMIT_WINDOW_SECONDS:
         events.popleft()
@@ -81,7 +85,42 @@ async def request_safety_middleware(request: Request, call_next):
     events.append(now)
     response = await call_next(request)
     response.headers["X-Request-ID"] = _request_id(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["X-Frame-Options"] = "DENY"
+    if settings.is_production:
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     return response
+
+
+def _client_key(request: Request) -> str:
+    """Identify the caller without letting every user share the proxy address.
+
+    Container Apps sets X-Envoy-External-Address to the address it accepted.
+    Otherwise the last X-Forwarded-For hop is the one appended by the platform.
+    A caller-supplied first hop is not used, because that value can be chosen
+    to dodge the limiter.
+    """
+    envoy = (request.headers.get("x-envoy-external-address") or "").strip()
+    if envoy:
+        return envoy[:64]
+    forwarded = request.headers.get("x-forwarded-for", "")
+    hops = [hop.strip() for hop in forwarded.split(",") if hop.strip()]
+    if hops:
+        return hops[-1][:64]
+    return request.client.host if request.client else "unknown"
+
+
+def _prune_rate_limits(now: float) -> None:
+    if len(_rate_limit_events) < 4096:
+        return
+    stale = [
+        key
+        for key, events in _rate_limit_events.items()
+        if not events or now - events[-1] >= settings.RATE_LIMIT_WINDOW_SECONDS
+    ]
+    for key in stale:
+        del _rate_limit_events[key]
 
 
 def _request_id(request: Request) -> str:
@@ -155,10 +194,12 @@ async def unhandled_error_handler(request: Request, exc: Exception) -> JSONRespo
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.allowed_origins,
-    allow_origin_regex=r"^https?://.*$",
+    # Local Next.js is opened as localhost or 127.0.0.1, sometimes on another port.
+    # Production keeps the exact HTTPS allow-list and does not use this pattern.
+    allow_origin_regex=None if settings.is_production else r"^http://(localhost|127\.0\.0\.1)(:\d+)?$",
     allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
 )
 
 # Include API routes
@@ -177,3 +218,19 @@ async def root():
 @app.get("/health")
 async def health_check():
     return {"status": "ok", "service": settings.APP_NAME, "version": settings.APP_VERSION}
+
+
+@app.get("/v1/models")
+async def openai_models_compatibility():
+    """OpenAI-compatible models listing to satisfy local tooling/extensions polling port 8000."""
+    return {
+        "object": "list",
+        "data": [
+            {
+                "id": settings.OPENAI_MODEL or "speakready-ai",
+                "object": "model",
+                "created": int(time.time()),
+                "owned_by": "speakready",
+            }
+        ],
+    }

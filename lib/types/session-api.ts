@@ -1,7 +1,7 @@
-import { PracticeSessionConfig } from "./practice";
+import { PracticeSessionConfig, getDisplayMode } from "./practice";
 
 export interface SessionConfigRequest {
-  mode: PracticeSessionConfig["mode"];
+  mode: "hr" | "technical" | "viva";
   job_role?: string | null;
   subject?: string | null;
   proficiency_level: PracticeSessionConfig["proficiencyLevel"];
@@ -114,23 +114,29 @@ export type SubmitResponseRequest = Pick<
 >;
 
 export function toSessionRequest(config: PracticeSessionConfig): SessionConfigRequest {
+  const backendMode = config.mode === "english" ? "hr" : config.mode;
+  const jobRole = config.mode === "english"
+    ? (config.jobRole?.trim() || "English Communication & Fluency Practice")
+    : (config.mode === "viva" ? undefined : config.jobRole?.trim());
+
   return {
-    mode: config.mode,
-    ...(config.mode === "viva"
-      ? { subject: config.subject?.trim() }
-      : { job_role: config.jobRole?.trim() }),
+    mode: backendMode,
+    ...(config.mode === "viva" ? { subject: config.subject?.trim() } : { job_role: jobRole }),
     proficiency_level: config.proficiencyLevel,
     difficulty: config.difficulty,
     interaction_mode: config.interactionMode,
     question_count: config.questionCount,
     explanation_language: config.explanationLanguage,
-    topic_focus: config.topicFocus?.trim() || undefined,
+    topic_focus: config.mode === "english" && config.topicFocus
+      ? `English Practice: ${config.topicFocus.trim()}`
+      : config.topicFocus?.trim() || undefined,
   };
 }
 
 export function toPracticeConfig(session: SessionDetail): PracticeSessionConfig {
+  const displayMode = getDisplayMode(session);
   return {
-    mode: session.mode,
+    mode: displayMode,
     jobRole: session.job_role ?? undefined,
     subject: session.subject ?? undefined,
     proficiencyLevel: session.proficiency_level,

@@ -1,19 +1,20 @@
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
+import { getSupabaseAnonKey, getSupabaseUrl } from "@/lib/public-env";
 
 let client: SupabaseClient | undefined;
 
 export function getSupabaseConfigurationError(): string | null {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const url = getSupabaseUrl();
+  const key = getSupabaseAnonKey();
   if (!url || !key) {
-    return "Sign-in is not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY, then restart the frontend.";
+    return "Sign-in is not configured. Set SUPABASE_URL and SUPABASE_ANON_KEY, or the NEXT_PUBLIC_ versions, then restart the frontend.";
   }
   try {
     const parsed = new URL(url);
     const isLocalDevelopment = parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1";
     if (parsed.protocol !== "https:" && !(process.env.NODE_ENV !== "production" && isLocalDevelopment)) throw new Error();
   } catch {
-    return "NEXT_PUBLIC_SUPABASE_URL must be a valid Supabase project URL. Update it and restart the frontend.";
+    return "SUPABASE_URL must be a valid Supabase project URL. Update it and restart the frontend.";
   }
   return null;
 }
@@ -23,8 +24,8 @@ export function getSupabaseClient(): SupabaseClient {
   if (configurationError) throw new Error(configurationError);
   if (!client) {
     client = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      getSupabaseUrl(),
+      getSupabaseAnonKey(),
       {
         auth: {
           flowType: "pkce",

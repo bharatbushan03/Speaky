@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { SessionDetail } from "@/lib/types/session-api";
+import { getDisplayMode, getModeTitle } from "@/lib/types/practice";
 import { sessionsAPI } from "@/lib/api/sessions";
 import { initializePracticeSession, validateRoomSession } from "@/lib/api/practice-session";
 import { getAPIErrorMessage } from "@/lib/api-client";
@@ -20,6 +21,31 @@ import { Sparkles, ArrowLeft, AlertCircle } from "lucide-react";
 import Link from "next/link";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function speakInBrowser(text: string, language: string): Promise<void> {
+  if (typeof window === "undefined" || !("speechSynthesis" in window)) {
+    return Promise.reject(new Error("Speech synthesis is not supported in this browser."));
+  }
+
+  const languageMap: Record<string, string> = {
+    english: "en-US",
+    hindi: "hi-IN",
+    tamil: "ta-IN",
+    telugu: "te-IN",
+    bengali: "bn-IN",
+    kannada: "kn-IN",
+  };
+
+  return new Promise((resolve, reject) => {
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = languageMap[language] || "en-US";
+    utterance.rate = 0.93;
+    utterance.onend = () => resolve();
+    utterance.onerror = () => reject(new Error("The browser could not play speech."));
+    window.speechSynthesis.speak(utterance);
+  });
+}
 
 function RoomLoading() {
   return <p role="status" className="py-12 text-center">Loading your saved practice session...</p>;
@@ -259,7 +285,7 @@ function PracticeRoom() {
         session={session}
         onAnswerSubmit={submitAnswer}
         onNextQuestion={async () => {
-          await navigate(1);
+          return await navigate(1);
         }}
         onCompleteSession={complete}
         isSaving={isSaving}
@@ -287,7 +313,7 @@ function PracticeRoom() {
           <ArrowLeft className="h-4 w-4 mr-2" />Back
         </Button>
 <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Sparkles className="h-4 w-4" /><span className="capitalize">{session.mode} Practice</span>
+          <Sparkles className="h-4 w-4" /><span className="font-semibold">{getModeTitle(getDisplayMode(session))}</span>
         </div>
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium capitalize">Language: {session.explanation_language}</span>
@@ -330,11 +356,18 @@ function PracticeRoom() {
                   setTTSLoading(true);
                   setTTSError(null);
                   try {
-                    const response = await sessionsAPI.postTTS({
-                      text: currentQuestion.text,
-                      language: session.explanation_language,
-                    });
-                    await playBlob(response);
+                    try {
+                      const response = await sessionsAPI.postTTS({
+                        text: currentQuestion.text,
+                        language: session.explanation_language,
+                      });
+                      await playBlob(response);
+                    } catch (error) {
+                      await speakInBrowser(currentQuestion.text, session.explanation_language);
+                      if (error instanceof Error && !error.message.includes("not configured")) {
+                        console.warn("Backend TTS unavailable; used browser speech instead.", error);
+                      }
+                    }
                   } catch (err) {
                     setTTSError(getAPIErrorMessage(err));
                   } finally {

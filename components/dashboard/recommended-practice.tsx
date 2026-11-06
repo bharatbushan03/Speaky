@@ -22,13 +22,13 @@ const recommendations: RecommendedItem[] = [
     title: "Grammar Fundamentals",
     reason: "Strengthen your foundation with verb tenses",
     tag: "Skill Gap",
-    href: "/practice/grammar",
+    href: "/practice/english",
   },
   {
     title: "Confidence Building",
     reason: "Work on reducing filler words and pauses",
     tag: "Quick Win",
-    href: "/practice/fluency",
+    href: "/practice/english",
   },
 ];
 

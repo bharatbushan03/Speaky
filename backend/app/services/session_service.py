@@ -116,7 +116,7 @@ class SessionService:
             "GET",
             "/rest/v1/sessions",
             params={
-                "select": "*,questions:session_questions(*),responses:session_responses(*)",
+                "select": "*,questions:session_questions(id,session_id,text,context,hints,order_index,created_at,updated_at),responses:session_responses(*)",
                 "id": f"eq.{session_id}",
                 "user_id": f"eq.{self.user_id}",
             },
@@ -385,50 +385,27 @@ class SessionService:
         """Generate personalized learning recommendations from session data."""
         recommendations: List[RecommendationItem] = []
 
-        # Collect all answer evaluations across sessions
+        # Corrections already come back with the session query as response_evaluations.
         all_answer_evaluations: list[dict] = []
-        all_responses: list[dict] = []
 
         for session_row in sessions_rows:
             eval_row = session_row.get("session_evaluations")
             eval_data = eval_row[0] if isinstance(eval_row, list) and eval_row else eval_row if isinstance(eval_row, dict) else None
-            if eval_data:
-                ae_list = eval_data.get("answer_evaluations", [])
-                # Get the response_evaluations for each answer evaluation
-                for ae in ae_list:
-                    response_id = ae.get("response_id")
-                    question_id = ae.get("question_id")
-                    # Fetch the response details
-                    resp_rows = await self.db.request(
-                        "GET",
-                        "/rest/v1/session_responses",
-                        params={
-                            "select": "*",
-                            "id": f"eq.{response_id}",
-                            "session_id": f"eq.{session_row.get('id')}",
-                        },
-                    )
-                    if resp_rows:
-                        all_responses.append(resp_rows[0])
-
-                    # Fetch the response_evaluations
-                    rp_rows = await self.db.request(
-                        "GET",
-                        "/rest/v1/response_evaluations",
-                        params={
-                            "select": "*",
-                            "evaluation_id": f"eq.{eval_data.get('id')}",
-                            "response_id": f"eq.{response_id}",
-                        },
-                    )
-                    eval_copy = dict(ae)
-                    if rp_rows:
-                        eval_copy["corrections"] = rp_rows[0].get("corrections", [])
-                        eval_copy["explanations"] = rp_rows[0].get("explanations", [])
-                        eval_copy["strengths"] = rp_rows[0].get("strengths", [])
-                        eval_copy["improvements"] = rp_rows[0].get("improvements", [])
-                        eval_copy["retry_recommendations"] = rp_rows[0].get("retry_recommendations", [])
-                    all_answer_evaluations.append(eval_copy)
+            if not eval_data:
+                continue
+            embedded = eval_data.get("response_evaluations") or eval_data.get("answer_evaluations") or []
+            if isinstance(embedded, dict):
+                embedded = [embedded]
+            for ae in embedded:
+                if not isinstance(ae, dict):
+                    continue
+                eval_copy = dict(ae)
+                eval_copy["corrections"] = ae.get("corrections") or []
+                eval_copy["explanations"] = ae.get("explanations") or []
+                eval_copy["strengths"] = ae.get("strengths") or []
+                eval_copy["improvements"] = ae.get("improvements") or []
+                eval_copy["retry_recommendations"] = ae.get("retry_recommendations") or []
+                all_answer_evaluations.append(eval_copy)
 
         # Analyze recurring grammar mistakes
         grammar_mistakes: Dict[str, int] = {}
@@ -451,7 +428,7 @@ class SessionService:
                         type="grammar",
                         title=f"Practise recurring grammar mistake: '{mistake}'",
                         reason=f"This mistake appeared {count} time(s) across your sessions. Focus on this pattern in your next practice.",
-                        action_href="/practice/grammar",
+                        action_href="/practice/english",
                     )
                 )
 
@@ -495,7 +472,7 @@ class SessionService:
                     type="vocabulary",
                     title="Expand vocabulary for your preferred topics",
                     reason="More than half of your evaluated dimensions show vocabulary scores below 7.0. Consider focusing on topic-specific vocabulary expansion.",
-                    action_href="/practice/vocabulary",
+                    action_href="/practice/english",
                 )
             )
 
@@ -518,7 +495,7 @@ class SessionService:
                     type="fluency",
                     title="Work on pronunciation and fluency",
                     reason=f"More than half of your sessions show fluency scores below 7.0. Consider practice with voice recording for timing feedback.",
-                    action_href="/practice/fluency",
+                    action_href="/practice/english",
                 )
             )
 

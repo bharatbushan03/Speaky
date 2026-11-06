@@ -4,7 +4,7 @@
 -- storage and atomic database boundary used by configured providers.
 BEGIN;
 
-CREATE FUNCTION public.practice_session_evaluation_criteria_valid(p_criteria jsonb)
+CREATE OR REPLACE FUNCTION public.practice_session_evaluation_criteria_valid(p_criteria jsonb)
 RETURNS boolean
 LANGUAGE sql
 IMMUTABLE
@@ -43,7 +43,7 @@ GRANT SELECT (
 -- This helper is only callable by the two security-definer functions below.
 -- The API response model deliberately ignores evaluation_criteria, keeping it
 -- out of user-visible practice-room content.
-CREATE FUNCTION public.practice_session_detail(p_session_id uuid)
+CREATE OR REPLACE FUNCTION public.practice_session_detail(p_session_id uuid)
 RETURNS jsonb
 LANGUAGE sql
 SECURITY DEFINER
@@ -68,7 +68,7 @@ AS $$
     WHERE s.id = p_session_id;
 $$;
 
-CREATE FUNCTION public.persist_generated_question(
+CREATE OR REPLACE FUNCTION public.persist_generated_question(
     p_session_id uuid,
     p_order_index integer,
     p_question jsonb
@@ -172,7 +172,7 @@ EXCEPTION
 END;
 $$;
 
-CREATE FUNCTION public.start_practice_session(p_session_id uuid)
+CREATE OR REPLACE FUNCTION public.start_practice_session(p_session_id uuid)
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER

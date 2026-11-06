@@ -1,24 +1,25 @@
-# Reproducible FastAPI image. The Next.js frontend is built/run with npm using
-# the pinned .nvmrc because the API and browser have separate deploy targets.
-FROM python:3.11.9-slim
-
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PYTHONPATH=/app/backend
-
+FROM node:22-slim AS deps
 WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
 
-COPY backend/requirements.lock /app/backend/requirements.lock
-RUN python -m pip install --no-cache-dir --requirement /app/backend/requirements.lock
+FROM node:22-slim AS build
+WORKDIR /app
+ENV NEXT_TELEMETRY_DISABLED=1
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+RUN mkdir -p public && npm run build
 
-COPY backend /app/backend
-
-# Do not run the API as root in production.
-RUN addgroup --system speakready && adduser --system --ingroup speakready speakready \
-    && chown -R speakready:speakready /app
-USER speakready
-
-EXPOSE 8000
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"
-CMD ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+FROM node:22-slim AS runner
+WORKDIR /app
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV PORT=3000
+ENV HOSTNAME=0.0.0.0
+RUN useradd --create-home --uid 10001 nextjs
+COPY --from=build --chown=nextjs:nextjs /app/public ./public
+COPY --from=build --chown=nextjs:nextjs /app/.next/standalone ./
+COPY --from=build --chown=nextjs:nextjs /app/.next/static ./.next/static
+USER nextjs
+EXPOSE 3000
+CMD ["node", "server.js"]

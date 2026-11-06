@@ -55,7 +55,8 @@ export class SpeechRecognitionService {
    */
   async startListening(
     onTranscript: (transcript: string, isFinal: boolean) => void,
-    onError: (error: SpeechRecognitionError) => void
+    onError: (error: SpeechRecognitionError) => void,
+    onEnd?: () => void,
   ): Promise<void> {
     if (!this.recognition) {
       throw new Error("Speech recognition not initialized");
@@ -100,6 +101,7 @@ export class SpeechRecognitionService {
 
       this.recognition.onend = () => {
         this.isListening = false;
+        onEnd?.();
       };
 
       try {
@@ -159,7 +161,27 @@ export class SpeechRecognitionService {
       case "network":
         return {
           type: "network_error",
-          message: "Network error occurred. Please check your connection.",
+          message: "Speech recognition needs an internet connection. Check your connection and try again.",
+        };
+      case "audio-capture":
+        return {
+          type: "permission_denied",
+          message: "No microphone was found. Connect a microphone and check your system input device.",
+        };
+      case "service-not-allowed":
+        return {
+          type: "permission_denied",
+          message: "The browser blocked speech recognition. Allow microphone and speech access for this site.",
+        };
+      case "aborted":
+        return {
+          type: "unknown",
+          message: "Speech recognition stopped. Press Start Recording and try again.",
+        };
+      case "language-not-supported":
+        return {
+          type: "not_supported",
+          message: "This speech language is not supported by your browser. Select English or type your answer.",
         };
       case "not-supported":
         return {

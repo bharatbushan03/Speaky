@@ -114,6 +114,7 @@ export function EvaluationReport({ evaluation, isLoading, error, onRetry }: Eval
 
   const technicalAvg = calculateAverage(evaluation.dimensions, TECHNICAL_DIMENSIONS);
   const verbalAvg = calculateAverage(evaluation.dimensions, VERBAL_DIMENSIONS);
+  const hasTechnicalEvaluation = TECHNICAL_DIMENSIONS.some((k) => Boolean(evaluation.dimensions[k]?.available && evaluation.dimensions[k]?.score !== null));
 
   // Partition strengths & improvements
   const technicalStrengths = evaluation.strengths.filter((s) => /tech|concept|accur|solut|domain/i.test(s));
@@ -148,20 +149,24 @@ export function EvaluationReport({ evaluation, isLoading, error, onRetry }: Eval
                   <span className="text-xs text-muted-foreground font-normal">/10</span>
                 </div>
               </div>
+              {hasTechnicalEvaluation && (
+                <>
+                  <div className="h-8 w-px bg-border" />
+                  <div className="text-center">
+                    <div className="text-xs text-muted-foreground uppercase font-semibold flex items-center gap-1 justify-center">
+                      <Cpu className="h-3 w-3 text-blue-600" /> Technical
+                    </div>
+                    <div className={`text-2xl font-bold ${scoreColor(technicalAvg)}`}>
+                      {technicalAvg !== null ? `${technicalAvg.toFixed(1)}` : "N/A"}
+                      <span className="text-xs text-muted-foreground font-normal">/10</span>
+                    </div>
+                  </div>
+                </>
+              )}
               <div className="h-8 w-px bg-border" />
               <div className="text-center">
                 <div className="text-xs text-muted-foreground uppercase font-semibold flex items-center gap-1 justify-center">
-                  <Cpu className="h-3 w-3 text-blue-600" /> Technical
-                </div>
-                <div className={`text-2xl font-bold ${scoreColor(technicalAvg)}`}>
-                  {technicalAvg !== null ? `${technicalAvg.toFixed(1)}` : "N/A"}
-                  <span className="text-xs text-muted-foreground font-normal">/10</span>
-                </div>
-              </div>
-              <div className="h-8 w-px bg-border" />
-              <div className="text-center">
-                <div className="text-xs text-muted-foreground uppercase font-semibold flex items-center gap-1 justify-center">
-                  <Languages className="h-3 w-3 text-purple-600" /> English/Verbal
+                  <Languages className="h-3 w-3 text-purple-600" /> English & Spoken
                 </div>
                 <div className={`text-2xl font-bold ${scoreColor(verbalAvg)}`}>
                   {verbalAvg !== null ? `${verbalAvg.toFixed(1)}` : "N/A"}
@@ -178,7 +183,8 @@ export function EvaluationReport({ evaluation, isLoading, error, onRetry }: Eval
         </CardContent>
       </Card>
 
-      {/* PHASE 1: TECHNICAL POINT OF VIEW (EVALUATED FIRST) */}
+      {/* PHASE 1: TECHNICAL POINT OF VIEW (ONLY FOR TECHNICAL/VIVA) */}
+      {hasTechnicalEvaluation && (
       <section className="space-y-4">
         <div className="flex items-center gap-2 border-b pb-2">
           <div className="p-2 rounded-lg bg-blue-100 text-blue-700">
@@ -256,6 +262,7 @@ export function EvaluationReport({ evaluation, isLoading, error, onRetry }: Eval
           </Card>
         </div>
       </section>
+      )}
 
       {/* PHASE 2: ENGLISH & VERBAL LANGUAGE EVALUATION */}
       <section className="space-y-4">
@@ -265,8 +272,8 @@ export function EvaluationReport({ evaluation, isLoading, error, onRetry }: Eval
           </div>
           <div>
             <h3 className="text-xl font-bold flex items-center gap-2">
-              Phase 2: English & Verbal Language Evaluation
-              <Badge variant="secondary" className="text-xs">Evaluated Second</Badge>
+              {hasTechnicalEvaluation ? "Phase 2: English & Verbal Language Evaluation" : "English Communication & Verbal Evaluation"}
+              <Badge variant="secondary" className="text-xs">{hasTechnicalEvaluation ? "Evaluated Second" : "Primary Focus"}</Badge>
             </h3>
             <p className="text-xs text-muted-foreground">
               Evaluates spoken fluency, English grammar, professional vocabulary, clarity, and verbal delivery.
@@ -349,7 +356,8 @@ export function EvaluationReport({ evaluation, isLoading, error, onRetry }: Eval
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-4 space-y-4">
-                {/* 1. Technical Assessment for this answer */}
+                {/* 1. Technical Assessment for this answer (if technical session) */}
+                {hasTechnicalEvaluation && (
                 <div className="rounded-lg border border-blue-200/60 bg-blue-50/20 p-3.5 space-y-2">
                   <div className="flex items-center gap-1.5 text-blue-700 dark:text-blue-400 font-semibold text-sm">
                     <Cpu className="h-4 w-4" />
@@ -359,6 +367,7 @@ export function EvaluationReport({ evaluation, isLoading, error, onRetry }: Eval
                     {answer.explanations?.[0] || "Your technical answer demonstrated a sound conceptual foundation."}
                   </p>
                 </div>
+                )}
 
                 {/* 2. English & Verbal Assessment for this answer */}
                 <div className="rounded-lg border border-purple-200/60 bg-purple-50/20 p-3.5 space-y-2">

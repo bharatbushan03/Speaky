@@ -1,4 +1,5 @@
 import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse } from "axios";
+import { getApiUrl } from "@/lib/public-env";
 import { getSupabaseClient, getSupabaseConfigurationError } from "@/lib/supabase";
 
 // API response types
@@ -26,14 +27,14 @@ export function getAPIErrorMessage(error: unknown): string {
 // Create axios instance with default config. Built on first use so a missing
 // env var does not crash pages that never call the API (including next build).
 const createAPIClient = (): AxiosInstance => {
-  const apiURL = process.env.NEXT_PUBLIC_API_URL;
+  const apiURL = getApiUrl();
   if (!apiURL) {
-    throw new Error("NEXT_PUBLIC_API_URL is not configured. Set the FastAPI URL before starting the frontend.");
+    throw new Error("The API URL is not configured. Set API_URL or NEXT_PUBLIC_API_URL before starting the frontend.");
   }
 
   const client = axios.create({
     baseURL: apiURL.replace(/\/+$/, ""),
-    timeout: 30000,
+    timeout: 90000,
     headers: {
       "Content-Type": "application/json",
     },

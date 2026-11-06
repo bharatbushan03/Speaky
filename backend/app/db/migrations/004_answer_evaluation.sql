@@ -77,7 +77,7 @@ REVOKE ALL PRIVILEGES ON TABLE public.session_evaluations, public.response_evalu
     FROM PUBLIC, anon, authenticated;
 GRANT SELECT ON TABLE public.session_evaluations, public.response_evaluations TO authenticated;
 
-CREATE FUNCTION public.persist_session_evaluation(
+CREATE OR REPLACE FUNCTION public.persist_session_evaluation(
     p_session_id uuid,
     p_evaluation jsonb
 )
