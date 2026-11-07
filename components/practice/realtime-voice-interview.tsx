@@ -23,13 +23,20 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { SessionDetail, SessionQuestion } from "@/lib/types/session-api";
+import { sessionsAPI } from "@/lib/api/sessions";
 import { getDisplayMode, getModeTitle } from "@/lib/types/practice";
 import { SpeechRecognitionService } from "@/lib/services/speech-recognition";
 import { cn } from "@/lib/utils";
 
+interface AnswerFeedback {
+  note: string;
+  modelAnswer: string;
+}
+
 interface RealtimeVoiceInterviewProps {
   session: SessionDetail;
   onAnswerSubmit: (questionId: string, answer: string, transcriptEdited?: boolean) => Promise<boolean>;
+  onRequestFeedback: (questionId: string, answer: string) => Promise<AnswerFeedback | null>;
   onNextQuestion: () => Promise<boolean | void>;
   onCompleteSession: () => Promise<boolean>;
   isSaving: boolean;
@@ -43,12 +50,14 @@ type CallState =
   | "user_listening"
   | "user_paused"
   | "submitting"
+  | "feedback"
   | "ai_acknowledging"
   | "completed";
 
 export function RealtimeVoiceInterview({
   session,
   onAnswerSubmit,
+  onRequestFeedback,
   onNextQuestion,
   onCompleteSession,
   isSaving,
@@ -69,6 +78,7 @@ export function RealtimeVoiceInterview({
   const [micAudioLevel, setMicAudioLevel] = useState(0);
   const [micPermissionError, setMicPermissionError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState("Connecting with AI Interviewer...");
+  const [answerFeedback, setAnswerFeedback] = useState<AnswerFeedback | null>(null);
   const [callDuration, setCallDuration] = useState(0);
 
   // References
@@ -81,6 +91,10 @@ export function RealtimeVoiceInterview({
   const lastSpokenQuestionIdRef = useRef<string | null>(null);
   const activeUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const speechSafetyTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const askQuestionRef = useRef<(question?: SessionQuestion, index?: number) => void>(() => {});
+  const spokenAudioRef = useRef<HTMLAudioElement | null>(null);
+  const spokenAudioUrlRef = useRef<string | null>(null);
+  const speakGenerationRef = useRef(0);
 
   // Call duration timer
   useEffect(() => {
@@ -96,92 +110,94 @@ export function RealtimeVoiceInterview({
     return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
   };
 
-  // Safe SpeechSynthesis that avoids Chromium GC and pause bugs
+  const stopSpokenAudio = useCallback(() => {
+    speakGenerationRef.current += 1;
+    if (spokenAudioRef.current) {
+      spokenAudioRef.current.pause();
+      spokenAudioRef.current.src = "";
+      spokenAudioRef.current = null;
+    }
+    if (spokenAudioUrlRef.current) {
+      URL.revokeObjectURL(spokenAudioUrlRef.current);
+      spokenAudioUrlRef.current = null;
+    }
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch {
+        // Ignore cancel errors from a missing speech engine.
+      }
+    }
+  }, []);
+
+  // Gnani Shivani speaks first. The browser voice is only a fallback.
   const speakText = useCallback((text: string, onEnd?: () => void) => {
-    if (typeof window === "undefined" || !("speechSynthesis" in window)) {
-      onEnd?.();
-      return;
-    }
-
-    if (speechSafetyTimerRef.current) {
-      clearTimeout(speechSafetyTimerRef.current);
-      speechSafetyTimerRef.current = null;
-    }
-
-    try {
-      window.speechSynthesis.cancel();
-    } catch {
-      // Ignore cancel error
-    }
-
-    const utterance = new SpeechSynthesisUtterance(text);
-    activeUtteranceRef.current = utterance;
-    // Retain global reference to protect against Chromium V8 garbage collection
-    (window as any).__speakReadyActiveUtterance = utterance;
-
-    utterance.rate = 0.93;
-    utterance.pitch = 1.0;
-    utterance.lang = "en-US";
-
-    const voices = window.speechSynthesis.getVoices();
-    const preferredVoice =
-      voices.find(
-        (v) =>
-          v.lang.startsWith("en") &&
-          (v.name.includes("Google") ||
-            v.name.includes("Natural") ||
-            v.name.includes("Samantha") ||
-            v.name.includes("David") ||
-            v.name.includes("Daniel") ||
-            v.name.includes("Jenny"))
-      ) || voices.find((v) => v.lang.startsWith("en"));
-
-    if (preferredVoice) {
-      utterance.voice = preferredVoice;
-    }
+    stopSpokenAudio();
+    const generation = speakGenerationRef.current;
 
     let hasFinished = false;
     const finish = () => {
-      if (hasFinished) return;
+      if (hasFinished || speakGenerationRef.current !== generation) return;
       hasFinished = true;
       if (speechSafetyTimerRef.current) {
         clearTimeout(speechSafetyTimerRef.current);
         speechSafetyTimerRef.current = null;
       }
-      activeUtteranceRef.current = null;
-      (window as any).__speakReadyActiveUtterance = null;
-      if (mountedRef.current) {
-        onEnd?.();
+      if (spokenAudioRef.current) {
+        spokenAudioRef.current.pause();
       }
+      if (mountedRef.current) onEnd?.();
     };
 
-    utterance.onend = finish;
-    utterance.onerror = (e) => {
-      if (e.error !== "canceled" && e.error !== "interrupted") {
-        console.warn("Speech synthesis notice:", e.error);
+    const speakWithBrowser = () => {
+      if (speakGenerationRef.current !== generation || typeof window === "undefined" || !("speechSynthesis" in window)) {
+        finish();
+        return;
       }
-      finish();
-    };
-
-    // Fallback safety timeout based on word count
-    const wordCount = text.split(/\s+/).filter(Boolean).length;
-    const maxDurationMs = Math.max(3000, Math.ceil((wordCount / 2.0) * 1000) + 2500);
-    speechSafetyTimerRef.current = setTimeout(() => {
-      if (!hasFinished) {
+      const utterance = new SpeechSynthesisUtterance(text);
+      activeUtteranceRef.current = utterance;
+      (window as any).__speakReadyActiveUtterance = utterance;
+      utterance.rate = 0.93;
+      utterance.pitch = 1.0;
+      utterance.lang = "en-US";
+      const voices = window.speechSynthesis.getVoices();
+      const preferredVoice = voices.find(
+        (voice) => voice.lang.startsWith("en") && (voice.name.includes("Google") || voice.name.includes("Natural"))
+      ) || voices.find((voice) => voice.lang.startsWith("en"));
+      if (preferredVoice) utterance.voice = preferredVoice;
+      utterance.onend = finish;
+      utterance.onerror = () => finish();
+      const wordCount = text.split(/\s+/).filter(Boolean).length;
+      const maxDurationMs = Math.max(3000, Math.ceil((wordCount / 2.0) * 1000) + 2500);
+      speechSafetyTimerRef.current = setTimeout(finish, maxDurationMs);
+      try {
+        window.speechSynthesis.speak(utterance);
+      } catch {
         finish();
       }
-    }, maxDurationMs);
+    };
 
-    try {
-      window.speechSynthesis.speak(utterance);
-      if (window.speechSynthesis.paused) {
-        window.speechSynthesis.resume();
-      }
-    } catch (err) {
-      console.warn("Failed to invoke speech synthesis:", err);
-      finish();
-    }
-  }, []);
+    void sessionsAPI.postTTS({ text, language: session.explanation_language })
+      .then(async (blob) => {
+        if (!mountedRef.current || speakGenerationRef.current !== generation) return;
+        const url = URL.createObjectURL(blob);
+        spokenAudioUrlRef.current = url;
+        const audio = new Audio(url);
+        spokenAudioRef.current = audio;
+        audio.onended = () => {
+          if (spokenAudioUrlRef.current === url) {
+            URL.revokeObjectURL(url);
+            spokenAudioUrlRef.current = null;
+          }
+          finish();
+        };
+        audio.onerror = () => speakWithBrowser();
+        const wordCount = text.split(/\s+/).filter(Boolean).length;
+        speechSafetyTimerRef.current = setTimeout(finish, Math.max(12000, wordCount * 700));
+        await audio.play();
+      })
+      .catch(() => speakWithBrowser());
+  }, [session.explanation_language, stopSpokenAudio]);
 
   // Web Audio API analyser to measure real microphone levels for visualizer
   const setupAudioAnalyser = async () => {
@@ -245,9 +261,7 @@ export function RealtimeVoiceInterview({
       speechServiceRef.current.cleanup();
       speechServiceRef.current = null;
     }
-    if (typeof window !== "undefined" && "speechSynthesis" in window) {
-      window.speechSynthesis.cancel();
-    }
+    stopSpokenAudio();
   };
 
   // Start real-time speech recognition
@@ -319,6 +333,7 @@ export function RealtimeVoiceInterview({
       stopListening();
       setTranscript("");
       setInterimTranscript("");
+      setAnswerFeedback(null);
       setCallState("ai_speaking");
       setStatusMessage(`AI Interviewer is speaking question ${targetIndex + 1}...`);
 
@@ -343,6 +358,7 @@ export function RealtimeVoiceInterview({
     },
     [currentQuestion, session.current_question_index, speakText, startListening, stopListening]
   );
+  askQuestionRef.current = askCurrentQuestion;
 
   // Initial connection and mount effect
   useEffect(() => {
@@ -362,22 +378,23 @@ export function RealtimeVoiceInterview({
     };
   }, []);
 
-  // Watch for question changes and speak
+  // Speak once the question exists. Mark it spoken only after the call starts,
+  // so a cancelled startup timer cannot leave the screen on Connecting.
   useEffect(() => {
     if (!currentQuestion) return;
-    if (lastSpokenQuestionIdRef.current === currentQuestion.id) return;
+    const question = currentQuestion;
+    const questionIndex = session.current_question_index;
+    if (lastSpokenQuestionIdRef.current === question.id) return;
 
-    lastSpokenQuestionIdRef.current = currentQuestion.id;
-    // Small delay for initial connection polish
-    const delay = session.current_question_index === 0 ? 800 : 300;
-    const timer = setTimeout(() => {
-      if (mountedRef.current) {
-        askCurrentQuestion(currentQuestion, session.current_question_index);
-      }
-    }, delay);
+    const timer = window.setTimeout(() => {
+      if (!mountedRef.current) return;
+      if (lastSpokenQuestionIdRef.current === question.id) return;
+      lastSpokenQuestionIdRef.current = question.id;
+      askQuestionRef.current(question, questionIndex);
+    }, 0);
 
-    return () => clearTimeout(timer);
-  }, [currentQuestion, session.current_question_index, askCurrentQuestion]);
+    return () => window.clearTimeout(timer);
+  }, [currentQuestion, session.current_question_index]);
 
   // Finish answer & submit
   const handleFinishAnswer = async () => {
@@ -390,7 +407,7 @@ export function RealtimeVoiceInterview({
     }
 
     setCallState("submitting");
-    setStatusMessage("Saving and evaluating your response...");
+    setStatusMessage("Saving your answer and preparing feedback...");
 
     try {
       const success = await onAnswerSubmit(currentQuestion.id, finalAnswer, false);
@@ -400,24 +417,14 @@ export function RealtimeVoiceInterview({
         return;
       }
 
-      if (isLastQuestion) {
-        setCallState("ai_acknowledging");
-        setStatusMessage("Completing interview session...");
-        speakText(
-          displayMode === "english"
-            ? "Thank you for the wonderful conversation! That concludes our English practice session. Generating your fluency and communication evaluation now."
-            : "Thank you for your detailed answers. That concludes our interview! Generating your performance and communication evaluation now.",
-          async () => {
-            await onCompleteSession();
-          }
-        );
+      const feedback = await onRequestFeedback(currentQuestion.id, finalAnswer);
+      setAnswerFeedback(feedback);
+      setCallState("feedback");
+      if (feedback) {
+        setStatusMessage("Here is one way you can answer this.");
+        speakText(`You can answer this. ${feedback.modelAnswer}`);
       } else {
-        setStatusMessage("Analyzing your answer & formulating next question...");
-        const advanced = await onNextQuestion();
-        if (advanced === false) {
-          setCallState("user_paused");
-          setStatusMessage("Next question ready. Click Next Question to continue.");
-        }
+        setStatusMessage("Feedback is unavailable for this answer. You can continue.");
       }
     } catch (err) {
       setCallState("user_paused");
@@ -519,7 +526,7 @@ export function RealtimeVoiceInterview({
                 callState === "ai_speaking" && "bg-gradient-to-tr from-blue-600 to-indigo-500 text-white shadow-blue-500/30 scale-105",
                 callState === "user_listening" && "bg-gradient-to-tr from-emerald-600 to-teal-500 text-white shadow-emerald-500/30",
                 (callState === "connecting" || callState === "user_paused") && "bg-muted text-muted-foreground",
-                (callState === "submitting" || callState === "ai_acknowledging") && "bg-gradient-to-tr from-purple-600 to-violet-500 text-white"
+                (callState === "submitting" || callState === "feedback" || callState === "ai_acknowledging") && "bg-gradient-to-tr from-purple-600 to-violet-500 text-white"
               )}
             >
               {callState === "ai_speaking" && <Volume2 className="h-10 w-10 animate-bounce" />}
@@ -527,6 +534,7 @@ export function RealtimeVoiceInterview({
               {callState === "user_paused" && <MicOff className="h-10 w-10" />}
               {callState === "connecting" && <Radio className="h-10 w-10 animate-spin" />}
               {(callState === "submitting" || callState === "ai_acknowledging") && <Sparkles className="h-10 w-10 animate-spin" />}
+              {callState === "feedback" && <Sparkles className="h-10 w-10" />}
 
               <span className="text-[10px] uppercase font-semibold mt-1 tracking-wider">
                 {callState === "ai_speaking" && "Speaking"}
@@ -534,6 +542,7 @@ export function RealtimeVoiceInterview({
                 {callState === "user_paused" && "Paused"}
                 {callState === "connecting" && "Connecting"}
                 {callState === "submitting" && "Analyzing"}
+                {callState === "feedback" && "Feedback"}
                 {callState === "ai_acknowledging" && "Evaluating"}
               </span>
             </div>
@@ -546,7 +555,8 @@ export function RealtimeVoiceInterview({
               {callState === "ai_speaking" && "Listen carefully — AI is asking the question"}
               {callState === "user_listening" && "Your turn to answer — speak into your microphone"}
               {callState === "user_paused" && "Microphone paused — check answer or resume"}
-              {callState === "submitting" && "Saving response & preparing next question..."}
+              {callState === "submitting" && "Saving your answer..."}
+              {callState === "feedback" && "You can answer this"}
               {callState === "ai_acknowledging" && "Response received. Preparing next step..."}
             </h2>
             <p className="text-sm text-muted-foreground">{statusMessage}</p>
@@ -593,6 +603,13 @@ export function RealtimeVoiceInterview({
               <div className="mt-3 p-4 rounded-xl border bg-card text-left shadow-sm animate-in fade-in zoom-in-95 duration-200">
                 <span className="text-xs font-semibold text-primary uppercase">Spoken Question:</span>
                 <p className="text-sm font-medium mt-1 leading-relaxed">{currentQuestion.text}</p>
+              </div>
+            )}
+            {callState === "feedback" && answerFeedback && (
+              <div className="mt-3 p-4 rounded-xl border border-primary/40 bg-primary/5 text-left shadow-sm">
+                <span className="text-xs font-semibold text-primary uppercase">You can answer:</span>
+                <p className="text-sm font-medium mt-1 leading-relaxed">{answerFeedback.modelAnswer}</p>
+                <p className="mt-2 text-xs text-muted-foreground">{answerFeedback.note}</p>
               </div>
             )}
           </div>
@@ -695,14 +712,33 @@ export function RealtimeVoiceInterview({
 
           {/* PRIMARY CALL ACTION CONTROLS */}
           <div className="flex flex-wrap items-center justify-center gap-4 pt-2">
+            {callState === "feedback" && (
+              <Button
+                size="lg"
+                onClick={() => {
+                  stopSpokenAudio();
+                  if (isLastQuestion) {
+                    setCallState("ai_acknowledging");
+                    setStatusMessage("Completing interview session...");
+                    void onCompleteSession();
+                    return;
+                  }
+                  setStatusMessage("Preparing the next question...");
+                  void onNextQuestion();
+                }}
+                className="gap-2"
+              >
+                <span>{isLastQuestion ? "Finish and see report" : "Next question"}</span>
+                <ArrowRight className="h-4 w-4" />
+              </Button>
+            )}
+
             {callState === "ai_speaking" && (
               <Button
                 variant="outline"
                 size="lg"
                 onClick={() => {
-                  if (typeof window !== "undefined" && "speechSynthesis" in window) {
-                    window.speechSynthesis.cancel();
-                  }
+                  stopSpokenAudio();
                   void startListening();
                 }}
                 className="gap-2"

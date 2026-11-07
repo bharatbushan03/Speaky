@@ -1,5 +1,6 @@
 import { apiClient, get, post, put, patch } from "@/lib/api-client";
 import {
+  AnswerCoaching,
   SessionConfigRequest,
   SessionDetail,
   SessionQuestionRequest,
@@ -98,6 +99,11 @@ export const sessionsAPI = {
     patch<SessionDetail>(`/api/v1/sessions/${encodeURIComponent(id)}`, data),
   submitResponse: (id: string, data: SubmitResponseRequest): Promise<SessionDetail> =>
     post<SessionDetail>(`/api/v1/sessions/${encodeURIComponent(id)}/responses`, data),
+  coachAnswer: (
+    id: string,
+    data: { question_id: string; answer_text: string },
+  ): Promise<AnswerCoaching> =>
+    post<AnswerCoaching>(`/api/v1/sessions/${encodeURIComponent(id)}/coaching`, data),
   completeSession: (id: string): Promise<SessionDetail> =>
     post<SessionDetail>(`/api/v1/sessions/${encodeURIComponent(id)}/complete`),
   getEvaluation: (id: string): Promise<SessionEvaluation> =>

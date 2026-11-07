@@ -20,7 +20,7 @@ param supabaseUrl string
 @secure()
 param supabaseAnonKey string
 
-@description('mock, openai, or azure_openai.')
+@description('groq, mock, openai, or azure_openai.')
 param aiProvider string = 'mock'
 
 @description('Required only when AI_PROVIDER=openai. Leave empty for mock.')
@@ -28,6 +28,12 @@ param aiProvider string = 'mock'
 param openAiApiKey string = ''
 
 param openAiModel string = 'gpt-4o-mini'
+
+@description('Required only when AI_PROVIDER=groq.')
+@secure()
+param groqApiKey string = ''
+
+param groqModel string = 'qwen/qwen3.8-27b'
 
 @description('Azure OpenAI or Microsoft Foundry endpoint. Required only for azure_openai.')
 param azureOpenAiEndpoint string = ''
@@ -111,6 +117,12 @@ var apiSecrets = concat(
       name: 'azure-openai-api-key'
       value: azureOpenAiApiKey
     }
+  ],
+  empty(groqApiKey) ? [] : [
+    {
+      name: 'groq-api-key'
+      value: groqApiKey
+    }
   ]
 )
 
@@ -123,6 +135,7 @@ var apiEnv = concat(
     { name: 'AI_PROVIDER', value: aiProvider }
     { name: 'AI_REQUEST_TIMEOUT_SECONDS', value: '60' }
     { name: 'OPENAI_MODEL', value: openAiModel }
+    { name: 'GROQ_MODEL', value: groqModel }
     { name: 'AZURE_OPENAI_ENDPOINT', value: azureOpenAiEndpoint }
     { name: 'AZURE_OPENAI_DEPLOYMENT', value: azureOpenAiDeployment }
     { name: 'ALLOWED_ORIGINS', value: 'https://${webHost}' }
@@ -136,6 +149,9 @@ var apiEnv = concat(
   ],
   empty(azureOpenAiApiKey) ? [] : [
     { name: 'AZURE_OPENAI_API_KEY', secretRef: 'azure-openai-api-key' }
+  ],
+  empty(groqApiKey) ? [] : [
+    { name: 'GROQ_API_KEY', secretRef: 'groq-api-key' }
   ]
 )
 

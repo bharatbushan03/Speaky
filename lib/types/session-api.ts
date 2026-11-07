@@ -109,6 +109,11 @@ export type SessionQuestionRequest = Pick<SessionQuestion, "text" | "order_index
   hints?: string[];
 };
 
+export interface AnswerCoaching {
+  note: string;
+  model_answer: string;
+}
+
 export type SubmitResponseRequest = Pick<
   SessionResponse, "question_id" | "answer_text" | "interaction_mode" | "transcript_edited"
 >;

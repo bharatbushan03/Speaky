@@ -229,6 +229,24 @@ EvaluationCriterion = Annotated[
 ]
 
 
+class AnswerCoachingRequest(BaseModel):
+    """One saved answer to coach before the next question."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    question_id: str = Field(..., min_length=1, max_length=80)
+    answer_text: str = Field(..., min_length=1, max_length=8_000)
+
+
+class AnswerCoaching(BaseModel):
+    """A short note plus a sample answer the learner could say."""
+
+    model_config = ConfigDict(extra="ignore", str_strip_whitespace=True, protected_namespaces=())
+
+    note: str = Field(..., min_length=1, max_length=400)
+    model_answer: str = Field(..., min_length=1, max_length=1_200)
+
+
 class GeneratedQuestion(SessionInput):
     """One provider-produced question.
 

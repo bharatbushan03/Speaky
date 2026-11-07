@@ -35,6 +35,7 @@ async def readiness_check():
     provider = settings.AI_PROVIDER.strip().lower()
     ai_configured = (
         provider == "mock"
+        or (provider == "groq" and bool(settings.GROQ_API_KEY))
         or (provider == "openai" and bool(settings.OPENAI_API_KEY))
         or (
             provider in {"azure_openai", "azure-openai"}

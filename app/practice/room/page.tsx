@@ -4,7 +4,7 @@ import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { SessionDetail } from "@/lib/types/session-api";
+import { AnswerCoaching, SessionDetail } from "@/lib/types/session-api";
 import { getDisplayMode, getModeTitle } from "@/lib/types/practice";
 import { sessionsAPI } from "@/lib/api/sessions";
 import { initializePracticeSession, validateRoomSession } from "@/lib/api/practice-session";
@@ -48,7 +48,7 @@ function speakInBrowser(text: string, language: string): Promise<void> {
 }
 
 function RoomLoading() {
-  return <p role="status" className="py-12 text-center">Loading your saved practice session...</p>;
+  return <p role="status" className="py-12 text-center">Connecting to your interviewer and preparing the first question...</p>;
 }
 
 function PracticeRoom() {
@@ -59,6 +59,7 @@ function PracticeRoom() {
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [coaching, setCoaching] = useState<(AnswerCoaching & { questionId: string }) | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [recordingBusy, setRecordingBusy] = useState(false);
   const [ttsLoading, setTTSLoading] = useState(false);
@@ -157,6 +158,25 @@ function PracticeRoom() {
     void load();
     return () => { active = false; };
   }, [session?.id, session?.status, evaluationAttempt]);
+
+  useEffect(() => {
+    if (!session || session.interaction_mode === "voice") return;
+    const question = session.questions[session.current_question_index];
+    const answer = question
+      ? session.responses.find((item) => item.question_id === question.id)
+      : undefined;
+    if (!question || !answer || coaching?.questionId === question.id) return;
+    let active = true;
+    sessionsAPI.coachAnswer(session.id, {
+      question_id: question.id,
+      answer_text: answer.answer_text,
+    }).then((result) => {
+      if (active) setCoaching({ ...result, questionId: question.id });
+    }).catch(() => {
+      if (active) setCoaching(null);
+    });
+    return () => { active = false; };
+  }, [session, coaching?.questionId]);
 
   const reload = () => {
     if (savingRef.current || recordingBusy) return;
@@ -284,6 +304,17 @@ function PracticeRoom() {
       <RealtimeVoiceInterview
         session={session}
         onAnswerSubmit={submitAnswer}
+        onRequestFeedback={async (questionId, answer) => {
+          try {
+            const result = await sessionsAPI.coachAnswer(session.id, {
+              question_id: questionId,
+              answer_text: answer,
+            });
+            return { note: result.note, modelAnswer: result.model_answer };
+          } catch {
+            return null;
+          }
+        }}
         onNextQuestion={async () => {
           return await navigate(1);
         }}
@@ -386,6 +417,15 @@ function PracticeRoom() {
                 <p className="text-xs text-destructive">{ttsError}</p>
               )}
             </div>
+          )}
+          {currentAnswer && coaching?.questionId === currentQuestion.id && (
+            <Card>
+              <CardContent className="pt-6 space-y-2">
+                <p className="text-xs font-semibold uppercase text-primary">You can answer:</p>
+                <p className="text-sm leading-relaxed">{coaching.model_answer}</p>
+                <p className="text-xs text-muted-foreground">{coaching.note}</p>
+              </CardContent>
+            </Card>
           )}
           {session.interaction_mode === "text" ? (
             <TextAnswerInput

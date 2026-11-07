@@ -10,6 +10,8 @@
     "aiProvider": { "value": "${AI_PROVIDER=mock}" },
     "openAiApiKey": { "value": "${OPENAI_API_KEY=}" },
     "openAiModel": { "value": "${OPENAI_MODEL=gpt-4o-mini}" },
+    "groqApiKey": { "value": "${GROQ_API_KEY=}" },
+    "groqModel": { "value": "${GROQ_MODEL=qwen/qwen3.8-27b}" },
     "azureOpenAiEndpoint": { "value": "${AZURE_OPENAI_ENDPOINT=}" },
     "azureOpenAiApiKey": { "value": "${AZURE_OPENAI_API_KEY=}" },
     "azureOpenAiDeployment": { "value": "${AZURE_OPENAI_DEPLOYMENT=}" }

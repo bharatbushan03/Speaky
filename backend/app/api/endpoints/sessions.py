@@ -9,6 +9,8 @@ from app.core.errors import APIError
 from app.core.security import AuthenticatedUser, get_current_user
 from app.db.database import get_user_database
 from app.models.schemas import (
+    AnswerCoaching,
+    AnswerCoachingRequest,
     EvaluationDraft,
     SessionEvaluation,
     QuestionBatchCreate,
@@ -20,7 +22,7 @@ from app.models.schemas import (
 )
 from app.services.session_service import SessionService
 from app.services.ai_interfaces import QuestionGenerator, SessionEvaluator
-from app.services.question_generation import get_question_generator
+from app.services.question_generation import get_answer_coach, get_question_generator
 from app.services.evaluation import (
     get_session_evaluator,
     normalize_evaluation,
@@ -146,6 +148,25 @@ async def submit_response(
 ):
     """Submit or replace a text answer or voice transcript for a session question."""
     return await service.submit_response(session_id, response)
+
+
+@router.post("/{session_id}/coaching", response_model=AnswerCoaching)
+async def coach_answer(
+    session_id: UUID,
+    body: AnswerCoachingRequest,
+    service: SessionService = Depends(get_session_service),
+    coach=Depends(get_answer_coach),
+):
+    """Give a sample answer for one question the learner just answered."""
+    session = await service.get_session(session_id)
+    question = next((item for item in session.questions if item.id == body.question_id), None)
+    if question is None:
+        raise APIError(404, "question_not_found", "That question is not in this session")
+    return await coach.coach_answer(
+        question=question.text,
+        answer=body.answer_text,
+        language=session.explanation_language.value,
+    )
 
 
 @router.post("/{session_id}/complete", response_model=SessionConfigWithDetails)

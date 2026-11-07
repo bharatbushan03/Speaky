@@ -110,7 +110,7 @@ Repository secrets:
 | `SUPABASE_URL` | `https://<project>.supabase.co` |
 | `SUPABASE_ANON_KEY` | Supabase anon key |
 
-Leave the OpenAI secrets empty while `AI_PROVIDER` is `mock`. For Azure OpenAI, set the variable `AI_PROVIDER` to `azure_openai`, the variable `AZURE_OPENAI_ENDPOINT`, the variable `AZURE_OPENAI_DEPLOYMENT`, and the secret `AZURE_OPENAI_API_KEY`.
+Leave the model secrets empty while `AI_PROVIDER` is `mock`. For Groq's free models, set `AI_PROVIDER` to `groq`, the secret `GROQ_API_KEY`, and optionally `GROQ_MODEL` (`qwen/qwen3.8-27b` by default). For Azure OpenAI, set `AI_PROVIDER` to `azure_openai`, `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_DEPLOYMENT`, and the secret `AZURE_OPENAI_API_KEY`.
 
 Run the **CI/CD** workflow from the Actions tab, or push to `main`. The run prints `WEB_URL` and `API_URL`. Add these Supabase redirect URLs:
 
@@ -123,12 +123,13 @@ Check `https://<api-host>/health` before signing in. Do not put the Supabase ser
 
 | `AI_PROVIDER` | What it does |
 | --- | --- |
+| `groq` | Questions and evaluation through Groq's free-tier chat models. Set `GROQ_API_KEY`. `GROQ_MODEL` defaults to `qwen/qwen3.8-27b` with reasoning turned off so the first question returns quickly. |
 | `mock` | Deterministic questions and scores. No API key. |
 | `openai` | Questions and evaluation through OpenAI. Set `OPENAI_API_KEY` and `OPENAI_MODEL` on the backend only. |
 | `azure_openai` | Same flow through an Azure OpenAI or Microsoft Foundry deployment. Set `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_API_KEY`, and `AZURE_OPENAI_DEPLOYMENT`. |
 | `giani` | Refuses to run. There is no verified public API to call. |
 
-`TTS_PROVIDER=openai` speaks questions aloud. Leave it `unconfigured` to skip speech. Browser speech-to-text is separate and does not need a backend STT key.
+`TTS_PROVIDER=gnani` speaks questions in Gnani's Shivani voice. Set `GIANI_API_KEY` from the Gnani dashboard. Browser speech is the fallback when that call fails.
 
 ## Checks
 
@@ -152,7 +153,7 @@ These tests do not call Supabase or a paid model. Before relying on production, 
 - **Sign-in is not configured.** The frontend is missing `NEXT_PUBLIC_SUPABASE_URL` or `NEXT_PUBLIC_SUPABASE_ANON_KEY`. Restart `npm run dev` after changing them.
 - **401 Please sign in again.** The API did not accept the Supabase access token. Check `SUPABASE_URL` and `SUPABASE_ANON_KEY` on the backend. Do not send the service-role key from the browser.
 - **CORS error.** `ALLOWED_ORIGINS` must be the exact site origin, including `https://` and with no path.
-- **Questions fail.** With `AI_PROVIDER=openai` or `azure_openai`, the matching key, model, or deployment is missing or rejected. `mock` still works without them.
+- **Questions fail.** With `AI_PROVIDER=groq`, `openai`, or `azure_openai`, the matching key, model, or deployment is missing or rejected. `mock` still works without them.
 - **OAuth returns to an error page.** The provider is disabled in Supabase, or the callback URL is not in the redirect allowlist.
 - **Backend is not ready.** Check the Container App logs for the `api` service and confirm `SECRET_KEY`, `SUPABASE_URL`, and `SUPABASE_ANON_KEY` are set. `GET /health` should return `{"status":"ok"}`.
 

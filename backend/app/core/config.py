@@ -28,11 +28,11 @@ class Settings(BaseSettings):
     SUPABASE_ANON_KEY: str = ""
     
     # AI Provider Settings. ``mock`` is deterministic and keeps local/offline
-    # development usable. ``openai`` uses OpenAI's API, while
-    # ``azure_openai`` uses an Azure OpenAI deployment from Microsoft Foundry.
-    # Giani is intentionally not enabled: no official public generation API
-    # could be verified.
-    AI_PROVIDER: str = "openai"  # mock, openai, azure_openai, giani
+    # development usable. ``groq`` uses Groq's free-tier OpenAI-compatible API.
+    # ``openai`` uses OpenAI's API, while ``azure_openai`` uses an Azure OpenAI
+    # deployment from Microsoft Foundry. Giani is intentionally not enabled:
+    # no official public generation API could be verified.
+    AI_PROVIDER: str = "groq"  # mock, groq, openai, azure_openai, giani
     AI_REQUEST_TIMEOUT_SECONDS: float = Field(default=60.0, gt=0, le=120)
     EVALUATION_WEIGHTS_JSON: str = (
         '{"grammar":0.15,"vocabulary":0.10,"clarity":0.15,"coherence":0.15,'
@@ -44,21 +44,27 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = ""
     OPENAI_MODEL: str = "gpt-3.5-turbo"
 
+    # Groq free-tier chat. Qwen 3.8 can answer with reasoning turned off.
+    GROQ_API_KEY: str = ""
+    GROQ_MODEL: str = "qwen/qwen3.8-27b"
+
     # Azure OpenAI / Microsoft Foundry Settings
     # AZURE_OPENAI_DEPLOYMENT is the deployment name, not the model family name.
     AZURE_OPENAI_ENDPOINT: str = ""
     AZURE_OPENAI_API_KEY: str = ""
     AZURE_OPENAI_DEPLOYMENT: str = ""
     
-    # Giani AI settings are retained as placeholders only. Do not populate or
-    # use them until Giani supplies an official developer API specification.
+    # Gnani / Vachana speech. The key is sent only from the backend.
+    # Shivani is a female Timbre v3 voice.
     GIANI_API_KEY: str = ""
-    GIANI_API_URL: str = ""
+    GIANI_API_URL: str = "https://api.vachana.ai"
     GIANI_MODEL: str = ""
+    GNANI_TTS_MODEL: str = "timbre-v3.0"
+    GNANI_TTS_VOICE: str = "Shivani"
     
     # Speech-to-Text Settings
     STT_PROVIDER: str = "openai"  # openai, google, azure
-    TTS_PROVIDER: str = "unconfigured"  # unconfigured, mock, openai
+    TTS_PROVIDER: str = "gnani"  # unconfigured, mock, openai, gnani
     OPENAI_TTS_MODEL: str = "tts-1"
     OPENAI_TTS_VOICE: str = "alloy"
     

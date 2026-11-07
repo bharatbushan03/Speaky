@@ -10,12 +10,19 @@ from app.api.endpoints.sessions import get_question_generator, get_session_servi
 from app.core.config import settings
 from app.core.errors import APIError
 from app.models.schemas import GeneratedQuestion, QuestionResponse, SessionConfigWithDetails
-from app.services.evaluation import AzureOpenAISessionEvaluator, get_session_evaluator
+from app.services.evaluation import (
+    AzureOpenAISessionEvaluator,
+    GroqSessionEvaluator,
+    get_session_evaluator,
+)
 from app.services.question_generation import (
     AzureOpenAIQuestionGenerator,
+    ChatAnswerCoach,
+    GroqQuestionGenerator,
     MockQuestionGenerator,
     OpenAIQuestionGenerator,
     azure_openai_chat_completions_url,
+    chat_message_text,
     get_question_generator as build_question_generator,
 )
 from app.services.session_service import SessionService
@@ -226,6 +233,111 @@ class OpenAIProviderTests(unittest.IsolatedAsyncioTestCase):
             "provider_invalid_response",
             502,
         )
+
+
+class GroqProviderTests(unittest.IsolatedAsyncioTestCase):
+    @staticmethod
+    def session() -> SessionConfigWithDetails:
+        return SessionConfigWithDetails.model_validate(session_payload())
+
+    def test_reads_reasoning_when_content_is_empty(self):
+        text = chat_message_text(
+            {
+                "content": "",
+                "reasoning": json.dumps({"text": "Order lunch in English."}),
+            }
+        )
+        self.assertIn("Order lunch", text)
+
+    async def test_uses_groq_free_model_endpoint(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            body = json.loads(request.content)
+            self.assertEqual(str(request.url), "https://api.groq.com/openai/v1/chat/completions")
+            self.assertEqual(body["model"], "qwen/qwen3.8-27b")
+            self.assertEqual(body["reasoning_effort"], "none")
+            self.assertEqual(request.headers["authorization"], "Bearer groq-secret")
+            return httpx.Response(
+                200,
+                json={
+                    "choices": [
+                        {
+                            "message": {
+                                "content": "",
+                                "reasoning": json.dumps(
+                                    {
+                                        "text": "Order a meal in English.",
+                                        "context": None,
+                                        "hints": ["Name the dish."],
+                                        "evaluation_criteria": ["Uses a complete sentence"],
+                                    }
+                                ),
+                            }
+                        }
+                    ]
+                },
+            )
+
+        provider = GroqQuestionGenerator(
+            api_key="groq-secret",
+            model="qwen/qwen3.8-27b",
+            transport=httpx.MockTransport(handler),
+        )
+        result = await provider.generate_question(self.session())
+        self.assertEqual(result.text, "Order a meal in English.")
+
+    async def test_returns_a_sample_answer_for_the_question(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            body = json.loads(request.content)
+            self.assertEqual(body["reasoning_effort"], "none")
+            self.assertIn("learner_answer", body["messages"][1]["content"])
+            return httpx.Response(
+                200,
+                json={
+                    "choices": [
+                        {
+                            "message": {
+                                "content": json.dumps(
+                                    {
+                                        "note": "Name the dish and one reason you like it.",
+                                        "model_answer": "I would like the vegetable curry because it is mild and filling.",
+                                    }
+                                )
+                            }
+                        }
+                    ]
+                },
+            )
+
+        coach = ChatAnswerCoach(
+            GroqQuestionGenerator(
+                api_key="groq-secret",
+                model="qwen/qwen3.8-27b",
+                transport=httpx.MockTransport(handler),
+            )
+        )
+        result = await coach.coach_answer(
+            question="Order a meal in English.",
+            answer="Curry.",
+            language="english",
+        )
+        self.assertIn("vegetable curry", result.model_answer)
+
+    async def test_builds_groq_provider_from_settings(self):
+        original = {
+            "AI_PROVIDER": settings.AI_PROVIDER,
+            "GROQ_API_KEY": settings.GROQ_API_KEY,
+            "GROQ_MODEL": settings.GROQ_MODEL,
+        }
+        try:
+            settings.AI_PROVIDER = "groq"
+            settings.GROQ_API_KEY = "groq-secret"
+            settings.GROQ_MODEL = "qwen/qwen3.8-27b"
+            provider = build_question_generator()
+            self.assertIsInstance(provider, GroqQuestionGenerator)
+            self.assertIsInstance(get_session_evaluator(), GroqSessionEvaluator)
+        finally:
+            for name, value in original.items():
+                setattr(settings, name, value)
 
 
 class AzureOpenAIProviderTests(unittest.IsolatedAsyncioTestCase):
