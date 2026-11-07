@@ -15,28 +15,27 @@ function injected(): Partial<PublicRuntimeConfig> | undefined {
   return window.__SPEAKREADY__;
 }
 
+function serverEnv(name: string): string {
+  return process.env[name]?.trim() || "";
+}
+
 export function getApiUrl(): string {
-  return injected()?.apiUrl || process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || "";
+  return injected()?.apiUrl || "";
 }
 
 export function getSupabaseUrl(): string {
-  return injected()?.supabaseUrl || process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+  return injected()?.supabaseUrl || "";
 }
 
 export function getSupabaseAnonKey(): string {
-  return (
-    injected()?.supabaseAnonKey ||
-    process.env.SUPABASE_ANON_KEY ||
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-    ""
-  );
+  return injected()?.supabaseAnonKey || "";
 }
 
 export function serverPublicConfig(): PublicRuntimeConfig {
   return {
-    apiUrl: process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || "",
-    supabaseUrl: process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || "",
-    supabaseAnonKey: process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "",
+    apiUrl: serverEnv("API_URL"),
+    supabaseUrl: serverEnv("SUPABASE_URL"),
+    supabaseAnonKey: serverEnv("SUPABASE_ANON_KEY"),
   };
 }
 

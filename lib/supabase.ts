@@ -7,7 +7,7 @@ export function getSupabaseConfigurationError(): string | null {
   const url = getSupabaseUrl();
   const key = getSupabaseAnonKey();
   if (!url || !key) {
-    return "Sign-in is not configured. Set SUPABASE_URL and SUPABASE_ANON_KEY, or the NEXT_PUBLIC_ versions, then restart the frontend.";
+    return "Sign-in is not configured. Set SUPABASE_URL and SUPABASE_ANON_KEY, then restart the frontend.";
   }
   try {
     const parsed = new URL(url);

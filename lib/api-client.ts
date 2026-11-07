@@ -29,7 +29,7 @@ export function getAPIErrorMessage(error: unknown): string {
 const createAPIClient = (): AxiosInstance => {
   const apiURL = getApiUrl();
   if (!apiURL) {
-    throw new Error("The API URL is not configured. Set API_URL or NEXT_PUBLIC_API_URL before starting the frontend.");
+    throw new Error("The API URL is not configured. Set API_URL, then restart the frontend.");
   }
 
   const client = axios.create({

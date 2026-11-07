@@ -42,9 +42,9 @@ Open `http://localhost:3000`. Put only these values in `.env.local`:
 
 | Variable | Purpose |
 | --- | --- |
-| `NEXT_PUBLIC_API_URL` | FastAPI URL. Locally this is `http://localhost:8000`. |
-| `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL (`https://….supabase.co`). |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon key. This key is public. |
+| `API_URL` | FastAPI URL. Locally this is `http://localhost:8000`. |
+| `SUPABASE_URL` | Supabase project URL (`https://….supabase.co`). |
+| `SUPABASE_ANON_KEY` | Supabase publishable anon key. The page needs it to sign in. |
 
 Do not put the service-role key, `SECRET_KEY`, or an OpenAI key in the frontend env file.
 
@@ -150,7 +150,7 @@ These tests do not call Supabase or a paid model. Before relying on production, 
 
 ## When something fails
 
-- **Sign-in is not configured.** The frontend is missing `NEXT_PUBLIC_SUPABASE_URL` or `NEXT_PUBLIC_SUPABASE_ANON_KEY`. Restart `npm run dev` after changing them.
+- **Sign-in is not configured.** The frontend is missing `SUPABASE_URL` or `SUPABASE_ANON_KEY`. Restart `npm run dev` after changing them.
 - **401 Please sign in again.** The API did not accept the Supabase access token. Check `SUPABASE_URL` and `SUPABASE_ANON_KEY` on the backend. Do not send the service-role key from the browser.
 - **CORS error.** `ALLOWED_ORIGINS` must be the exact site origin, including `https://` and with no path.
 - **Questions fail.** With `AI_PROVIDER=groq`, `openai`, or `azure_openai`, the matching key, model, or deployment is missing or rejected. `mock` still works without them.
