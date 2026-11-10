@@ -24,6 +24,10 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { SessionDetail, SessionQuestion } from "@/lib/types/session-api";
 import { sessionsAPI } from "@/lib/api/sessions";
+import { feedbackAPI, SpeechMeta } from "@/lib/api/feedback";
+import { healthAPI, ProviderDiagnostics } from "@/lib/api/health";
+import { getAPIErrorMessage } from "@/lib/api-client";
+import { startClipRecorder, ClipRecorder } from "@/lib/audio-wav";
 import { getDisplayMode, getModeTitle } from "@/lib/types/practice";
 import { SpeechRecognitionService } from "@/lib/services/speech-recognition";
 import { cn } from "@/lib/utils";
@@ -35,7 +39,12 @@ interface AnswerFeedback {
 
 interface RealtimeVoiceInterviewProps {
   session: SessionDetail;
-  onAnswerSubmit: (questionId: string, answer: string, transcriptEdited?: boolean) => Promise<boolean>;
+  onAnswerSubmit: (
+    questionId: string,
+    answer: string,
+    transcriptEdited?: boolean,
+    speech?: SpeechMeta,
+  ) => Promise<boolean>;
   onRequestFeedback: (questionId: string, answer: string) => Promise<AnswerFeedback | null>;
   onNextQuestion: () => Promise<boolean | void>;
   onCompleteSession: () => Promise<boolean>;
@@ -49,6 +58,7 @@ type CallState =
   | "ai_speaking"
   | "user_listening"
   | "user_paused"
+  | "transcribing"
   | "submitting"
   | "feedback"
   | "ai_acknowledging"
@@ -78,6 +88,10 @@ export function RealtimeVoiceInterview({
   const [micAudioLevel, setMicAudioLevel] = useState(0);
   const [micPermissionError, setMicPermissionError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState("Connecting with AI Interviewer...");
+  const [speechLabel, setSpeechLabel] = useState("Gnani Prisma transcribes when you stop recording.");
+  const [ttsLabel, setTtsLabel] = useState("");
+  const [providers, setProviders] = useState<ProviderDiagnostics | null>(null);
+  const [transcriptEdited, setTranscriptEdited] = useState(false);
   const [answerFeedback, setAnswerFeedback] = useState<AnswerFeedback | null>(null);
   const [callDuration, setCallDuration] = useState(0);
 
@@ -95,6 +109,10 @@ export function RealtimeVoiceInterview({
   const spokenAudioRef = useRef<HTMLAudioElement | null>(null);
   const spokenAudioUrlRef = useRef<string | null>(null);
   const speakGenerationRef = useRef(0);
+  const recorderRef = useRef<ClipRecorder | null>(null);
+  const speechMetaRef = useRef<SpeechMeta | null>(null);
+  const liveWordsRef = useRef(false);
+  const interimRef = useRef("");
 
   // Call duration timer
   useEffect(() => {
@@ -159,7 +177,16 @@ export function RealtimeVoiceInterview({
       (window as any).__speakReadyActiveUtterance = utterance;
       utterance.rate = 0.93;
       utterance.pitch = 1.0;
-      utterance.lang = "en-US";
+      const browserLanguage: Record<string, string> = {
+        english: "en-IN",
+        hindi: "hi-IN",
+        tamil: "ta-IN",
+        telugu: "te-IN",
+        kannada: "kn-IN",
+        bengali: "bn-IN",
+      };
+      utterance.lang = browserLanguage[session.explanation_language] || "en-IN";
+      if (mountedRef.current) setTtsLabel("Browser speech. Timbre was unavailable.");
       const voices = window.speechSynthesis.getVoices();
       const preferredVoice = voices.find(
         (voice) => voice.lang.startsWith("en") && (voice.name.includes("Google") || voice.name.includes("Natural"))
@@ -178,9 +205,11 @@ export function RealtimeVoiceInterview({
     };
 
     void sessionsAPI.postTTS({ text, language: session.explanation_language })
-      .then(async (blob) => {
+      .then(async (spoken) => {
         if (!mountedRef.current || speakGenerationRef.current !== generation) return;
-        const url = URL.createObjectURL(blob);
+        const who = [spoken.provider, spoken.model, spoken.voice].filter(Boolean).join(" · ");
+        setTtsLabel(who || "Configured speech provider");
+        const url = URL.createObjectURL(spoken.audio);
         spokenAudioUrlRef.current = url;
         const audio = new Audio(url);
         spokenAudioRef.current = audio;
@@ -257,71 +286,157 @@ export function RealtimeVoiceInterview({
       audioContextRef.current.close().catch(() => {});
       audioContextRef.current = null;
     }
+    liveWordsRef.current = false;
     if (speechServiceRef.current) {
       speechServiceRef.current.cleanup();
       speechServiceRef.current = null;
     }
+    recorderRef.current = null;
     stopSpokenAudio();
   };
 
-  // Start real-time speech recognition
-  const startListening = useCallback(async () => {
-    if (!SpeechRecognitionService.isSupported()) {
-      setMicPermissionError("Speech recognition is not supported in this browser. Please use Google Chrome or Microsoft Edge, or type your response.");
-      return;
+  const ensureMicrophone = useCallback(async () => {
+    if (mediaStreamRef.current) return mediaStreamRef.current;
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error("This browser cannot use the microphone. Type your answer instead.");
     }
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    mediaStreamRef.current = stream;
+    return stream;
+  }, []);
 
-    try {
-      if (speechServiceRef.current) {
-        speechServiceRef.current.cleanup();
-      }
+  const rememberBrowserSpeech = useCallback(() => {
+    speechMetaRef.current = {
+      transcription_provider: "browser",
+      transcription_model: null,
+      detected_language: session.explanation_language,
+      audio_duration_ms: null,
+    };
+  }, [session.explanation_language]);
 
-      const service = new SpeechRecognitionService();
-      speechServiceRef.current = service;
-      service.initialize(SpeechRecognitionService.getLanguageCode(session.explanation_language));
-
-      await service.startListening(
-        (text, isFinal) => {
-          if (!mountedRef.current) return;
-          if (isFinal) {
-            setTranscript((prev) => (prev ? `${prev} ${text}`.trim() : text.trim()));
-            setInterimTranscript("");
-          } else {
-            setInterimTranscript(text);
-          }
-        },
-        (error) => {
-          if (!mountedRef.current) return;
-          // no_speech occurs naturally when the speaker takes a pause
-          if (error.type === "no_speech") {
-            return;
-          }
-          setMicPermissionError(error.message);
-        },
-        () => {
-          if (!mountedRef.current) return;
+  const beginLiveWords = useCallback(async () => {
+    const service = new SpeechRecognitionService();
+    const previous = speechServiceRef.current;
+    speechServiceRef.current = service;
+    previous?.cleanup();
+    service.initialize(SpeechRecognitionService.getLanguageCode(session.explanation_language));
+    await service.startListening(
+      (text, isFinal) => {
+        if (!mountedRef.current) return;
+        if (isFinal) {
+          interimRef.current = "";
+          setInterimTranscript("");
+          const spoken = text.trim();
+          if (spoken) setTranscript((prev) => (prev ? `${prev} ${spoken}` : spoken).trim());
+          rememberBrowserSpeech();
+          return;
+        }
+        interimRef.current = text;
+        setInterimTranscript(text);
+      },
+      (error) => {
+        if (!mountedRef.current || error.type === "no_speech") return;
+        setMicPermissionError(error.message);
+      },
+      () => {
+        if (!mountedRef.current || speechServiceRef.current !== service || !liveWordsRef.current) return;
+        void beginLiveWords().catch(() => {
+          liveWordsRef.current = false;
           setCallState("user_paused");
-          setStatusMessage("Paused. You can finish your answer or click microphone to resume.");
-        },
-      );
+        });
+      },
+    );
+  }, [rememberBrowserSpeech, session.explanation_language]);
 
-      setCallState("user_listening");
-      setStatusMessage("Listening to your answer... Speak naturally.");
+  const commitLiveWords = useCallback(() => {
+    liveWordsRef.current = false;
+    const pending = interimRef.current.trim();
+    interimRef.current = "";
+    setInterimTranscript("");
+    if (pending) {
+      setTranscript((prev) => (prev ? `${prev} ${pending}` : pending).trim());
+      rememberBrowserSpeech();
+    }
+    speechServiceRef.current?.cleanup();
+    speechServiceRef.current = null;
+  }, [rememberBrowserSpeech]);
+
+  const transcribeClip = useCallback(async () => {
+    const recorder = recorderRef.current;
+    recorderRef.current = null;
+    if (!recorder) return;
+    setCallState("transcribing");
+    setStatusMessage("Transcribing with Gnani Prisma...");
+    setInterimTranscript("");
+    try {
+      const clip = await recorder.stop();
+      const result = await feedbackAPI.transcribeAudio({
+        audio_data: clip.audioBase64,
+        language: session.explanation_language,
+      });
+      if (!mountedRef.current) return;
+      setTranscript((prev) => (prev ? `${prev} ${result.text}`.trim() : result.text));
+      setTranscriptEdited(false);
+      const provider = result.provider === "openai" ? "openai" : "gnani";
+      speechMetaRef.current = {
+        transcription_provider: provider,
+        transcription_model: result.model,
+        detected_language: result.language_detected,
+        audio_duration_ms: clip.durationMs,
+      };
+      setSpeechLabel(
+        provider === "gnani"
+          ? `Transcribed by Gnani ${result.model || "Prisma"}. Review the text before you submit.`
+          : `Transcribed by ${result.provider}${result.model ? ` ${result.model}` : ""}. This is not Gnani Prisma.`,
+      );
+      setShowTextFallback(true);
+      setCallState("user_paused");
+      setStatusMessage(result.truncated ? "The transcript was cut short. Review it, then submit or record again." : "Review the transcript. Edit it if needed, then submit.");
       setMicPermissionError(null);
-    } catch (err: any) {
-      if (mountedRef.current) {
-        setMicPermissionError("Unable to access microphone. Please ensure microphone permissions are granted.");
-      }
+    } catch (error) {
+      if (!mountedRef.current) return;
+      setCallState("user_paused");
+      setMicPermissionError(`${getAPIErrorMessage(error)} You can type the answer or use browser speech.`);
+      setStatusMessage("Prisma did not return a transcript.");
+      setSpeechLabel("No Gnani transcript yet.");
     }
   }, [session.explanation_language]);
 
-  // Stop listening
-  const stopListening = useCallback(() => {
-    if (speechServiceRef.current) {
-      speechServiceRef.current.stopListening();
+  const startListening = useCallback(async () => {
+    try {
+      await ensureMicrophone();
+      if (SpeechRecognitionService.isSupported()) {
+        liveWordsRef.current = true;
+        await beginLiveWords();
+        setCallState("user_listening");
+        setShowTextFallback(false);
+        setStatusMessage("Speak naturally. Each word appears as you say it.");
+        setSpeechLabel("Live transcript from this browser. Edit it before you submit.");
+        setMicPermissionError(null);
+        return;
+      }
+      const stream = await ensureMicrophone();
+      recorderRef.current = startClipRecorder(stream, () => {
+        void transcribeClip();
+      });
+      setCallState("user_listening");
+      setStatusMessage("This browser cannot show words live. Stop to transcribe the recording.");
+      setSpeechLabel("Recording for Gnani Prisma. The transcript appears after you stop.");
+      setMicPermissionError(null);
+    } catch (error) {
+      if (!mountedRef.current) return;
+      setMicPermissionError(error instanceof Error ? error.message : "Unable to access the microphone.");
+      setShowTextFallback(true);
+      setCallState("user_paused");
     }
-    setInterimTranscript("");
-  }, []);
+  }, [beginLiveWords, ensureMicrophone, transcribeClip]);
+
+  const stopListening = useCallback(() => {
+    commitLiveWords();
+    const recorder = recorderRef.current;
+    recorderRef.current = null;
+    if (recorder) void recorder.stop().catch(() => undefined);
+  }, [commitLiveWords]);
 
   // AI speaks the question in real-time
   const askCurrentQuestion = useCallback(
@@ -333,6 +448,8 @@ export function RealtimeVoiceInterview({
       stopListening();
       setTranscript("");
       setInterimTranscript("");
+      setTranscriptEdited(false);
+      speechMetaRef.current = null;
       setAnswerFeedback(null);
       setCallState("ai_speaking");
       setStatusMessage(`AI Interviewer is speaking question ${targetIndex + 1}...`);
@@ -372,6 +489,10 @@ export function RealtimeVoiceInterview({
       };
     }
 
+    void healthAPI.getProviders().then((loaded) => {
+      if (mountedRef.current) setProviders(loaded);
+    }).catch(() => undefined);
+
     return () => {
       mountedRef.current = false;
       cleanupAudio();
@@ -410,7 +531,12 @@ export function RealtimeVoiceInterview({
     setStatusMessage("Saving your answer and preparing feedback...");
 
     try {
-      const success = await onAnswerSubmit(currentQuestion.id, finalAnswer, false);
+      const success = await onAnswerSubmit(
+        currentQuestion.id,
+        finalAnswer,
+        transcriptEdited,
+        speechMetaRef.current || { transcription_provider: "typed" },
+      );
       if (!success) {
         setCallState("user_paused");
         setStatusMessage("Could not save answer. Please click Submit again.");
@@ -459,6 +585,12 @@ export function RealtimeVoiceInterview({
               <Badge variant="secondary" className="text-xs font-medium">
                 {modeTitle}
               </Badge>
+              {providers && (
+                <Badge variant="outline" className="text-xs">
+                  Questions: {providers.llm.configured ? `${providers.llm.provider} ${providers.llm.model}` : "not configured"}
+                  {providers.evon.available ? "" : " · Evon unavailable"}
+                </Badge>
+              )}
               {displayMode !== "english" && session.job_role && (
                 <Badge variant="outline" className="text-xs">
                   {session.job_role}
@@ -526,14 +658,14 @@ export function RealtimeVoiceInterview({
                 callState === "ai_speaking" && "bg-gradient-to-tr from-blue-600 to-indigo-500 text-white shadow-blue-500/30 scale-105",
                 callState === "user_listening" && "bg-gradient-to-tr from-emerald-600 to-teal-500 text-white shadow-emerald-500/30",
                 (callState === "connecting" || callState === "user_paused") && "bg-muted text-muted-foreground",
-                (callState === "submitting" || callState === "feedback" || callState === "ai_acknowledging") && "bg-gradient-to-tr from-purple-600 to-violet-500 text-white"
+                (callState === "submitting" || callState === "transcribing" || callState === "feedback" || callState === "ai_acknowledging") && "bg-gradient-to-tr from-purple-600 to-violet-500 text-white"
               )}
             >
               {callState === "ai_speaking" && <Volume2 className="h-10 w-10 animate-bounce" />}
               {callState === "user_listening" && <Mic className="h-10 w-10 animate-pulse" />}
               {callState === "user_paused" && <MicOff className="h-10 w-10" />}
               {callState === "connecting" && <Radio className="h-10 w-10 animate-spin" />}
-              {(callState === "submitting" || callState === "ai_acknowledging") && <Sparkles className="h-10 w-10 animate-spin" />}
+              {(callState === "submitting" || callState === "transcribing" || callState === "ai_acknowledging") && <Sparkles className="h-10 w-10 animate-spin" />}
               {callState === "feedback" && <Sparkles className="h-10 w-10" />}
 
               <span className="text-[10px] uppercase font-semibold mt-1 tracking-wider">
@@ -542,6 +674,7 @@ export function RealtimeVoiceInterview({
                 {callState === "user_paused" && "Paused"}
                 {callState === "connecting" && "Connecting"}
                 {callState === "submitting" && "Analyzing"}
+                {callState === "transcribing" && "Transcribing"}
                 {callState === "feedback" && "Feedback"}
                 {callState === "ai_acknowledging" && "Evaluating"}
               </span>
@@ -554,12 +687,14 @@ export function RealtimeVoiceInterview({
               {callState === "connecting" && "Connecting to AI Interviewer..."}
               {callState === "ai_speaking" && "Listen carefully — AI is asking the question"}
               {callState === "user_listening" && "Your turn to answer — speak into your microphone"}
-              {callState === "user_paused" && "Microphone paused — check answer or resume"}
+              {callState === "user_paused" && "Review the transcript, then submit"}
+              {callState === "transcribing" && "Turning your recording into text"}
               {callState === "submitting" && "Saving your answer..."}
               {callState === "feedback" && "You can answer this"}
               {callState === "ai_acknowledging" && "Response received. Preparing next step..."}
             </h2>
             <p className="text-sm text-muted-foreground">{statusMessage}</p>
+            {ttsLabel && <p className="text-xs text-muted-foreground">{ttsLabel}</p>}
           </div>
 
           {/* REALTIME AUDIO LEVEL EQUALIZER (when user is listening) */}
@@ -620,8 +755,9 @@ export function RealtimeVoiceInterview({
               <div className="flex items-center justify-between mb-2">
                 <span className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
                   <Mic className="h-3.5 w-3.5 text-emerald-600" />
-                  Real-time Candidate Answer
+                  Your answer
                 </span>
+                <span className="text-xs text-muted-foreground">{speechLabel}</span>
                 {callState === "user_listening" && (
                   <span className="inline-flex items-center gap-1 text-xs text-emerald-600 font-medium">
                     <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
@@ -649,17 +785,22 @@ export function RealtimeVoiceInterview({
                   ) : (
                     <p className="text-muted-foreground italic">
                       {callState === "user_listening"
-                        ? "Start speaking your answer... What you say will appear here in real-time."
-                        : "Waiting for interviewer..."}
+                        ? "Listening. Each word appears here as you speak."
+                        : "Waiting for the interviewer..."}
                     </p>
                   )}
                 </div>
               ) : (
                 <Textarea
                   value={transcript}
-                  onChange={(e) => setTranscript(e.target.value)}
-                  placeholder="Type your answer here..."
+                  onChange={(e) => {
+                    setTranscript(e.target.value);
+                    setTranscriptEdited(true);
+                    if (!speechMetaRef.current) speechMetaRef.current = { transcription_provider: "typed" };
+                  }}
+                  placeholder="Review the transcript or type your answer."
                   className="min-h-[80px] text-sm"
+                  aria-label="Answer transcript"
                 />
               )}
             </div>
@@ -681,6 +822,9 @@ export function RealtimeVoiceInterview({
                     onClick={() => {
                       setTranscript("");
                       setInterimTranscript("");
+                      setTranscriptEdited(false);
+                      speechMetaRef.current = null;
+                      setSpeechLabel("Gnani Prisma transcribes when you stop recording.");
                     }}
                     className="flex items-center gap-1 hover:text-destructive transition-colors"
                   >
@@ -748,7 +892,27 @@ export function RealtimeVoiceInterview({
               </Button>
             )}
 
-            {(callState === "user_listening" || callState === "user_paused") && hasAnswerText && (
+            {callState === "user_listening" && (
+              <Button
+                size="lg"
+                onClick={() => {
+                  if (liveWordsRef.current) {
+                    commitLiveWords();
+                    setShowTextFallback(true);
+                    setCallState("user_paused");
+                    setStatusMessage("Review the words, edit anything that is wrong, then submit.");
+                    return;
+                  }
+                  void transcribeClip();
+                }}
+                className="gap-2"
+              >
+                <MicOff className="h-5 w-5" />
+                Stop
+              </Button>
+            )}
+
+            {callState === "user_paused" && hasAnswerText && (
               <Button
                 size="lg"
                 onClick={handleFinishAnswer}
@@ -783,7 +947,13 @@ export function RealtimeVoiceInterview({
               </Button>
             )}
 
-            {(callState === "submitting" || callState === "ai_acknowledging") && (
+            {callState === "user_paused" && micPermissionError && !SpeechRecognitionService.isSupported() && (
+              <Button variant="outline" size="lg" onClick={() => void startListening()} className="gap-2">
+                Try again
+              </Button>
+            )}
+
+            {(callState === "submitting" || callState === "transcribing" || callState === "ai_acknowledging") && (
               <Button size="lg" disabled className="gap-2 px-8 py-6 text-base">
                 <Loader2 className="h-5 w-5 animate-spin" />
                 <span>Analyzing & Preparing Next Question...</span>

@@ -61,17 +61,22 @@ class Settings(BaseSettings):
     GIANI_MODEL: str = ""
     GNANI_TTS_MODEL: str = "timbre-v3.0"
     GNANI_TTS_VOICE: str = "Shivani"
+    # Documented Prisma REST model. https://docs.gnani.ai/api/STT/speech-to-text
+    GNANI_STT_MODEL: str = "prisma-v3.0"
     
     # Speech-to-Text Settings
-    STT_PROVIDER: str = "openai"  # openai, google, azure
+    STT_PROVIDER: str = "gnani"  # gnani, openai, google, azure, mock
     TTS_PROVIDER: str = "gnani"  # unconfigured, mock, openai, gnani
     OPENAI_TTS_MODEL: str = "tts-1"
     OPENAI_TTS_VOICE: str = "alloy"
     
     # Audio recording limits
     MAX_AUDIO_URL_LENGTH: int = 1000
-    AUDIO_RETENTION_DAYS: int = 30  # Default retention period for transcribed audio
-    MAX_REQUEST_BODY_BYTES: int = Field(default=1_000_000, ge=16_384, le=10_000_000)
+    # Raw audio is not stored. Transcripts stay with the session row.
+    AUDIO_RETENTION_DAYS: int = 30
+    MAX_AUDIO_BYTES: int = Field(default=1_500_000, ge=8_192, le=6_000_000)
+    # 30s 16 kHz mono WAV is about 1.3 MB once base64-encoded in JSON.
+    MAX_REQUEST_BODY_BYTES: int = Field(default=3_000_000, ge=16_384, le=10_000_000)
     RATE_LIMIT_REQUESTS: int = Field(default=60, ge=1, le=10_000)
     RATE_LIMIT_WINDOW_SECONDS: int = Field(default=60, ge=1, le=3_600)
     

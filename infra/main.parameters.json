@@ -14,6 +14,12 @@
     "groqModel": { "value": "${GROQ_MODEL=qwen/qwen3.8-27b}" },
     "azureOpenAiEndpoint": { "value": "${AZURE_OPENAI_ENDPOINT=}" },
     "azureOpenAiApiKey": { "value": "${AZURE_OPENAI_API_KEY=}" },
-    "azureOpenAiDeployment": { "value": "${AZURE_OPENAI_DEPLOYMENT=}" }
+    "azureOpenAiDeployment": { "value": "${AZURE_OPENAI_DEPLOYMENT=}" },
+    "gianiApiKey": { "value": "${GIANI_API_KEY=}" },
+    "ttsProvider": { "value": "${TTS_PROVIDER=gnani}" },
+    "sttProvider": { "value": "${STT_PROVIDER=gnani}" },
+    "gnaniTtsModel": { "value": "${GNANI_TTS_MODEL=timbre-v3.0}" },
+    "gnaniTtsVoice": { "value": "${GNANI_TTS_VOICE=Shivani}" },
+    "gnaniSttModel": { "value": "${GNANI_STT_MODEL=prisma-v3.0}" }
   }
 }

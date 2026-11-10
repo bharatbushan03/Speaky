@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { AnswerCoaching, SessionDetail } from "@/lib/types/session-api";
 import { getDisplayMode, getModeTitle } from "@/lib/types/practice";
 import { sessionsAPI } from "@/lib/api/sessions";
+import { SpeechMeta } from "@/lib/api/feedback";
 import { initializePracticeSession, validateRoomSession } from "@/lib/api/practice-session";
 import { getAPIErrorMessage } from "@/lib/api-client";
 import { QuestionDisplay } from "@/components/practice/question-display";
@@ -208,7 +209,7 @@ function PracticeRoom() {
     }
   };
 
-  const submitAnswer = (questionId: string, answer: string, transcriptEdited = false) => mutate((current) => {
+  const submitAnswer = (questionId: string, answer: string, transcriptEdited = false, speech?: SpeechMeta) => mutate((current) => {
     if (current.questions[current.current_question_index].id !== questionId) {
       throw new Error("The question has changed. Please answer the current question.");
     }
@@ -217,6 +218,7 @@ function PracticeRoom() {
       answer_text: answer,
       interaction_mode: current.interaction_mode,
       transcript_edited: transcriptEdited,
+      ...(current.interaction_mode === "voice" ? speech : {}),
     });
   });
 
@@ -392,7 +394,7 @@ function PracticeRoom() {
                         text: currentQuestion.text,
                         language: session.explanation_language,
                       });
-                      await playBlob(response);
+                      await playBlob(response.audio);
                     } catch (error) {
                       await speakInBrowser(currentQuestion.text, session.explanation_language);
                       if (error instanceof Error && !error.message.includes("not configured")) {

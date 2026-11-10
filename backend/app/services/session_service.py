@@ -3,6 +3,7 @@ from uuid import UUID
 from datetime import datetime, timedelta
 
 import json
+import logging
 
 from app.core.errors import APIError
 from app.models.schemas import (
@@ -23,6 +24,9 @@ from app.models.schemas import (
     DimensionScore,
     EvaluationDimension,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 class SessionDatabase(Protocol):
@@ -179,7 +183,34 @@ class SessionService:
         self, session_id: UUID, response: ResponseSubmit
     ) -> SessionConfigWithDetails:
         """Upsert an answer for a question belonging to this session."""
-        return await self._mutate("response", session_id, response.model_dump(mode="json"))
+        payload = response.model_dump(
+            mode="json",
+            exclude={
+                "transcription_provider",
+                "transcription_model",
+                "detected_language",
+                "audio_duration_ms",
+            },
+        )
+        session = await self._mutate("response", session_id, payload)
+        if response.transcription_provider:
+            try:
+                await self.db.request(
+                    "POST",
+                    "/rest/v1/rpc/set_response_speech_meta",
+                    json={
+                        "p_session_id": str(session_id),
+                        "p_question_id": str(response.question_id),
+                        "p_provider": response.transcription_provider,
+                        "p_model": response.transcription_model,
+                        "p_language": response.detected_language,
+                        "p_duration_ms": response.audio_duration_ms,
+                    },
+                )
+            except APIError:
+                # The answer is already saved. Metadata needs migration 006.
+                logger.info("Speech metadata was not stored")
+        return session
 
     async def complete_session(self, session_id: UUID) -> SessionConfigWithDetails:
         """Complete once every configured question is answered; repeat calls are safe."""
@@ -245,6 +276,7 @@ class SessionService:
         score_count = 0
         grammar_scores: list[float] = []
         vocabulary_scores: list[float] = []
+        clarity_scores: list[float] = []
         fluency_scores: list[float] = []
 
         practice_dates: set[str] = set()
@@ -273,12 +305,15 @@ class SessionService:
                                 grammar_scores.append(score)
                             elif dim_name == "vocabulary":
                                 vocabulary_scores.append(score)
+                            elif dim_name == "clarity":
+                                clarity_scores.append(score)
                             elif dim_name == "spoken_fluency":
                                 fluency_scores.append(score)
 
         avg_score = round(score_sum / score_count, 2) if score_count > 0 else None
         avg_grammar = round(sum(grammar_scores) / len(grammar_scores), 2) if grammar_scores else None
         avg_vocab = round(sum(vocabulary_scores) / len(vocabulary_scores), 2) if vocabulary_scores else None
+        avg_clarity = round(sum(clarity_scores) / len(clarity_scores), 2) if clarity_scores else None
         avg_fluency = round(sum(fluency_scores) / len(fluency_scores), 2) if fluency_scores else None
 
         # Derive streaks from the new session dates. A current streak includes
@@ -321,6 +356,7 @@ class SessionService:
             average_score=avg_score,
             grammar_score=avg_grammar,
             vocabulary_score=avg_vocab,
+            clarity_score=avg_clarity,
             fluency_score=avg_fluency,
             pronunciation_score=None,
             current_streak=current_streak,
@@ -345,6 +381,7 @@ class SessionService:
             overall = None
             grammar = None
             vocabulary = None
+            clarity = None
             fluency = None
 
             if eval_data:
@@ -359,6 +396,8 @@ class SessionService:
                                 grammar = score
                             elif dim_name == "vocabulary":
                                 vocabulary = score
+                            elif dim_name == "clarity":
+                                clarity = score
                             elif dim_name == "spoken_fluency":
                                 fluency = score
 
@@ -371,6 +410,7 @@ class SessionService:
                     score=overall,
                     grammar=grammar,
                     vocabulary=vocabulary,
+                    clarity=clarity,
                     fluency=fluency,
                 )
             )

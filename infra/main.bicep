@@ -44,6 +44,16 @@ param azureOpenAiApiKey string = ''
 
 param azureOpenAiDeployment string = ''
 
+@description('Gnani API key for Timbre and Prisma. Leave empty to keep speech unconfigured.')
+@secure()
+param gianiApiKey string = ''
+
+param ttsProvider string = 'gnani'
+param sttProvider string = 'gnani'
+param gnaniTtsModel string = 'timbre-v3.0'
+param gnaniTtsVoice string = 'Shivani'
+param gnaniSttModel string = 'prisma-v3.0'
+
 var resourceSuffix = take(uniqueString(subscription().id, environmentName, location), 6)
 var compactName = take(toLower(replace(environmentName, '-', '')), 12)
 var tags = {
@@ -123,6 +133,12 @@ var apiSecrets = concat(
       name: 'groq-api-key'
       value: groqApiKey
     }
+  ],
+  empty(gianiApiKey) ? [] : [
+    {
+      name: 'giani-api-key'
+      value: gianiApiKey
+    }
   ]
 )
 
@@ -136,6 +152,12 @@ var apiEnv = concat(
     { name: 'AI_REQUEST_TIMEOUT_SECONDS', value: '60' }
     { name: 'OPENAI_MODEL', value: openAiModel }
     { name: 'GROQ_MODEL', value: groqModel }
+    { name: 'TTS_PROVIDER', value: ttsProvider }
+    { name: 'STT_PROVIDER', value: sttProvider }
+    { name: 'GNANI_TTS_MODEL', value: gnaniTtsModel }
+    { name: 'GNANI_TTS_VOICE', value: gnaniTtsVoice }
+    { name: 'GNANI_STT_MODEL', value: gnaniSttModel }
+    { name: 'GIANI_API_URL', value: 'https://api.vachana.ai' }
     { name: 'AZURE_OPENAI_ENDPOINT', value: azureOpenAiEndpoint }
     { name: 'AZURE_OPENAI_DEPLOYMENT', value: azureOpenAiDeployment }
     { name: 'ALLOWED_ORIGINS', value: 'https://${webHost}' }
@@ -152,6 +174,9 @@ var apiEnv = concat(
   ],
   empty(groqApiKey) ? [] : [
     { name: 'GROQ_API_KEY', secretRef: 'groq-api-key' }
+  ],
+  empty(gianiApiKey) ? [] : [
+    { name: 'GIANI_API_KEY', secretRef: 'giani-api-key' }
   ]
 )
 

@@ -116,7 +116,12 @@ export interface AnswerCoaching {
 
 export type SubmitResponseRequest = Pick<
   SessionResponse, "question_id" | "answer_text" | "interaction_mode" | "transcript_edited"
->;
+> & {
+  transcription_provider?: "gnani" | "openai" | "browser" | "typed" | null;
+  transcription_model?: string | null;
+  detected_language?: string | null;
+  audio_duration_ms?: number | null;
+};
 
 export function toSessionRequest(config: PracticeSessionConfig): SessionConfigRequest {
   const backendMode = config.mode === "english" ? "hr" : config.mode;

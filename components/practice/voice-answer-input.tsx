@@ -7,11 +7,14 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { SpeechRecognitionService } from "@/lib/services/speech-recognition";
+import { feedbackAPI, SpeechMeta } from "@/lib/api/feedback";
+import { getAPIErrorMessage } from "@/lib/api-client";
+import { startClipRecorder, ClipRecorder } from "@/lib/audio-wav";
 import { RecordingState, SpeechRecognitionError } from "@/lib/types/session";
 
 interface VoiceAnswerInputProps {
   initialValue?: string;
-  onSubmit: (answer: string, transcriptEdited: boolean) => Promise<boolean>;
+  onSubmit: (answer: string, transcriptEdited: boolean, speech?: SpeechMeta) => Promise<boolean>;
   isSubmitted: boolean;
   onEdit?: () => void;
   disabled?: boolean;
@@ -23,11 +26,6 @@ interface VoiceAnswerInputProps {
 const MAX_CHARS = 20_000;
 const RECOMMENDED_MIN_CHARS = 100;
 
-/**
- * Voice mode intentionally uses the browser SpeechRecognition API. It does not
- * pretend to have an audio upload fallback: browsers without SpeechRecognition
- * receive a clear message and can switch to text mode instead.
- */
 export function VoiceAnswerInput({
   initialValue = "",
   onSubmit,
@@ -46,6 +44,12 @@ export function VoiceAnswerInput({
   const [transcriptEdited, setTranscriptEdited] = useState(initialTranscriptEdited);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const recognitionRef = useRef<SpeechRecognitionService | null>(null);
+  const recorderRef = useRef<ClipRecorder | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const speechRef = useRef<SpeechMeta | null>(null);
+  const interimRef = useRef("");
+  const liveWordsRef = useRef(false);
+  const [speechLabel, setSpeechLabel] = useState("Record an answer. Gnani Prisma transcribes it for you to review.");
   const mountedRef = useRef(false);
   const submittingRef = useRef(false);
 
@@ -61,6 +65,8 @@ export function VoiceAnswerInput({
       mountedRef.current = false;
       recognitionRef.current?.cleanup();
       recognitionRef.current = null;
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
       onRecordingChange?.(false);
     };
   }, [onRecordingChange]);
@@ -69,70 +75,130 @@ export function VoiceAnswerInput({
     onRecordingChange?.(["recording", "requesting_permission", "processing"].includes(recordingState));
   }, [onRecordingChange, recordingState]);
 
+  const stopRecordingRef = useRef<() => Promise<void>>(async () => undefined);
+
   const handleStartRecording = async () => {
     if (disabled || isSubmitting || recordingState !== "idle") return;
     setError(null);
     setInterimTranscript("");
-
-    if (!SpeechRecognitionService.isSupported()) {
-      setRecordingState("error");
-      setError({
-        type: "not_supported",
-        message: "Voice input is not supported by this browser. Switch to text mode or use a supported browser.",
-      });
+    if (SpeechRecognitionService.isSupported()) {
+      await handleBrowserSpeech();
+      setSpeechLabel("Each word appears as you speak. Stop when you finish, then edit the text if needed.");
       return;
     }
-
     setRecordingState("requesting_permission");
-    const service = new SpeechRecognitionService();
-    recognitionRef.current?.cleanup();
-    recognitionRef.current = service;
+    try {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error("This browser cannot use the microphone. Type your answer instead.");
+      }
+      const stream = streamRef.current || await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      recorderRef.current = startClipRecorder(stream, () => {
+        void stopRecordingRef.current();
+      });
+      if (mountedRef.current) {
+        setRecordingState("recording");
+        setSpeechLabel("This browser cannot show words live. Stop to transcribe the recording.");
+      }
+    } catch (caught) {
+      if (!mountedRef.current) return;
+      const message = caught instanceof Error ? caught.message : "Unable to start recording.";
+      setError({ type: "unknown", message });
+      setRecordingState("error");
+    }
+  };
 
+  const handleStopRecording = async () => {
+    if (recognitionRef.current || liveWordsRef.current) {
+      liveWordsRef.current = false;
+      recognitionRef.current?.stopListening();
+      recognitionRef.current?.cleanup();
+      recognitionRef.current = null;
+      const pending = interimRef.current.trim();
+      interimRef.current = "";
+      setInterimTranscript("");
+      if (pending) setTranscript((current) => `${current} ${pending}`.trim().slice(0, MAX_CHARS));
+      setRecordingState("idle");
+      return;
+    }
+    const recorder = recorderRef.current;
+    recorderRef.current = null;
+    if (!recorder) return;
+    setRecordingState("processing");
+    setSpeechLabel("Transcribing with Gnani Prisma...");
+    try {
+      const clip = await recorder.stop();
+      const result = await feedbackAPI.transcribeAudio({ audio_data: clip.audioBase64, language });
+      if (!mountedRef.current) return;
+      setTranscript((current) => `${current} ${result.text}`.trim().slice(0, MAX_CHARS));
+      setTranscriptEdited(false);
+      const provider = result.provider === "openai" ? "openai" : "gnani";
+      speechRef.current = {
+        transcription_provider: provider,
+        transcription_model: result.model,
+        detected_language: result.language_detected,
+        audio_duration_ms: clip.durationMs,
+      };
+      setSpeechLabel(provider === "gnani"
+        ? `Transcribed by Gnani ${result.model || "Prisma"}. Edit the text if it is wrong.`
+        : `Transcribed by ${result.provider}. This is not Gnani Prisma.`);
+      setRecordingState("idle");
+    } catch (caught) {
+      if (!mountedRef.current) return;
+      setError({ type: "unknown", message: getAPIErrorMessage(caught) });
+      setSpeechLabel("Prisma did not return a transcript. You can type the answer or use browser speech.");
+      setRecordingState("error");
+    }
+  };
+
+  const handleBrowserSpeech = async () => {
+    if (!SpeechRecognitionService.isSupported()) {
+      setError({ type: "not_supported", message: "Browser speech recognition is unavailable. Type your answer." });
+      return;
+    }
+    setError(null);
+    liveWordsRef.current = true;
+    const service = new SpeechRecognitionService();
+    const previous = recognitionRef.current;
+    recognitionRef.current = service;
+    previous?.cleanup();
+    setRecordingState("requesting_permission");
     try {
       service.initialize(SpeechRecognitionService.getLanguageCode(language));
       await service.startListening(
         (text, isFinal) => {
-          if (!mountedRef.current || recognitionRef.current !== service) return;
-          if (isFinal) {
-            setTranscript((current) => `${current} ${text}`.trim().slice(0, MAX_CHARS));
-            setInterimTranscript("");
-            setTranscriptEdited(false);
-          } else {
+          if (!mountedRef.current) return;
+          if (!isFinal) {
+            interimRef.current = text;
             setInterimTranscript(text);
+            return;
           }
+          interimRef.current = "";
+          setInterimTranscript("");
+          setTranscript((current) => `${current} ${text}`.trim().slice(0, MAX_CHARS));
+          speechRef.current = { transcription_provider: "browser" };
+          setSpeechLabel("Each word appears as you speak. Stop when you finish, then edit the text if needed.");
+          setTranscriptEdited(false);
         },
         (recognitionError) => {
-          if (!mountedRef.current || recognitionRef.current !== service) return;
+          if (!mountedRef.current || recognitionError.type === "no_speech") return;
           setError(recognitionError);
-          setRecordingState(recognitionError.type === "permission_denied" ? "permission_denied" : "error");
+          setRecordingState("error");
         },
         () => {
-          if (!mountedRef.current || recognitionRef.current !== service) return;
-          recognitionRef.current = null;
-          setInterimTranscript("");
-          setRecordingState("idle");
+          if (!mountedRef.current || recognitionRef.current !== service || !liveWordsRef.current) return;
+          void handleBrowserSpeech();
         },
       );
-      if (mountedRef.current && recognitionRef.current === service) setRecordingState("recording");
+      if (mountedRef.current) setRecordingState("recording");
     } catch (caught) {
-      if (!mountedRef.current) return;
-      const message = caught instanceof Error ? caught.message : "Unable to start voice input.";
-      setError({ type: "unknown", message });
-      setRecordingState("error");
       service.cleanup();
-      recognitionRef.current = null;
+      setError({ type: "unknown", message: caught instanceof Error ? caught.message : "Unable to start browser speech." });
+      setRecordingState("error");
     }
   };
 
-  const handleStopRecording = () => {
-    const service = recognitionRef.current;
-    if (!service) return;
-    service.stopListening();
-    service.cleanup();
-    recognitionRef.current = null;
-    setInterimTranscript("");
-    setRecordingState("idle");
-  };
+  stopRecordingRef.current = handleStopRecording;
 
   const handleSubmit = async () => {
     const answer = transcript.trim();
@@ -140,7 +206,8 @@ export function VoiceAnswerInput({
     submittingRef.current = true;
     setIsSubmitting(true);
     try {
-      if (await onSubmit(answer, transcriptEdited)) setIsEditing(false);
+      const speech = speechRef.current || { transcription_provider: "typed" as const };
+      if (await onSubmit(answer, transcriptEdited, speech)) setIsEditing(false);
     } finally {
       submittingRef.current = false;
       setIsSubmitting(false);
@@ -197,6 +264,13 @@ export function VoiceAnswerInput({
               </Button>
             )}
           </div>
+        )}
+
+        <p className="text-sm text-muted-foreground">{speechLabel}</p>
+        {recordingState === "error" && (
+          <Button type="button" variant="outline" onClick={() => void handleBrowserSpeech()} disabled={disabled || isSubmitting}>
+            Use browser speech
+          </Button>
         )}
 
         {isRecording && (

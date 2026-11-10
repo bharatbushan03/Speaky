@@ -12,6 +12,13 @@ export interface ReadinessResponse {
   ai_service: string;
 }
 
+export interface ProviderDiagnostics {
+  llm: { provider: string; model: string; configured: boolean; role: string };
+  tts: { provider: string; model: string; voice: string; configured: boolean; endpoint: string };
+  stt: { provider: string; model: string; configured: boolean; endpoint: string };
+  evon: { available: boolean; reason: string };
+}
+
 export const healthAPI = {
   /**
    * Check API health status
@@ -25,5 +32,9 @@ export const healthAPI = {
    */
   checkReadiness: async (): Promise<ReadinessResponse> => {
     return get<ReadinessResponse>("/api/v1/health/ready");
+  },
+
+  getProviders: async (): Promise<ProviderDiagnostics> => {
+    return get<ProviderDiagnostics>("/api/v1/health/providers");
   },
 };

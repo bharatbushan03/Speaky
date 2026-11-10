@@ -79,7 +79,6 @@ export function Navbar() {
           <div className="hidden md:flex items-center gap-3">
             <Button size="sm" asChild className="font-semibold shadow-sm">
               <Link href="/practice">
-                <Sparkles className="h-3.5 w-3.5 mr-1.5" />
                 Start Practice
               </Link>
             </Button>

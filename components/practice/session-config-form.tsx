@@ -584,7 +584,6 @@ export function SessionConfigForm({
             disabled={isValidating || isStarting}
             className="gap-2 px-8 shadow-md"
           >
-            <Sparkles className="h-5 w-5" />
             {isStarting ? "Preparing Your Session..." : "Start Practice Session"}
           </Button>
         </div>

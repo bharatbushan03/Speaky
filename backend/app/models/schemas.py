@@ -299,6 +299,10 @@ class ResponseSubmit(SessionInput):
     interaction_mode: InteractionMode
     transcript_edited: bool = False
     audio_url: Optional[str] = Field(None, max_length=1000)
+    transcription_provider: Optional[str] = Field(None, max_length=20)
+    transcription_model: Optional[str] = Field(None, max_length=40)
+    detected_language: Optional[str] = Field(None, max_length=20)
+    audio_duration_ms: Optional[int] = Field(None, ge=0, le=30_000)
 
     @field_validator("question_id", mode="before")
     @classmethod
@@ -330,6 +334,10 @@ class ResponseSubmit(SessionInput):
                 raise ValueError("transcript_edited is only valid for voice answers")
             if self.audio_url is not None:
                 raise ValueError("audio_url is only valid for voice answers")
+            if self.transcription_provider or self.audio_duration_ms is not None:
+                raise ValueError("speech metadata is only valid for voice answers")
+        if self.transcription_provider and self.transcription_provider not in {"gnani", "openai", "browser", "typed"}:
+            raise ValueError("transcription_provider is not supported")
         return self
 
 
@@ -515,6 +523,9 @@ class TranscriptionResponse(BaseModel):
     text: str
     confidence: Optional[float] = None
     language_detected: Optional[str] = None
+    provider: str = "unknown"
+    model: Optional[str] = None
+    truncated: bool = False
 
 
 class TTSRequest(BaseModel):
@@ -564,6 +575,7 @@ class ProgressSummary(BaseModel):
     average_score: Optional[float] = None
     grammar_score: Optional[float] = None
     vocabulary_score: Optional[float] = None
+    clarity_score: Optional[float] = None
     fluency_score: Optional[float] = None
     pronunciation_score: Optional[float] = None
     current_streak: int = 0
@@ -603,6 +615,7 @@ class TrendPoint(BaseModel):
     score: Optional[float] = None
     grammar: Optional[float] = None
     vocabulary: Optional[float] = None
+    clarity: Optional[float] = None
     fluency: Optional[float] = None
 
     class Config:

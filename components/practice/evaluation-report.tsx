@@ -24,6 +24,7 @@ interface EvaluationReportProps {
   isLoading: boolean;
   error: string | null;
   onRetry: () => void;
+  answers?: Record<string, string>;
 }
 
 const TECHNICAL_DIMENSIONS: EvaluationDimension[] = [
@@ -74,7 +75,7 @@ function scoreColor(score: number | null): string {
   return "text-destructive";
 }
 
-export function EvaluationReport({ evaluation, isLoading, error, onRetry }: EvaluationReportProps) {
+export function EvaluationReport({ evaluation, isLoading, error, onRetry, answers }: EvaluationReportProps) {
   const [activeTab, setActiveTab] = useState<"all" | "technical" | "english">("all");
 
   if (isLoading) {
@@ -370,6 +371,13 @@ export function EvaluationReport({ evaluation, isLoading, error, onRetry }: Eval
                 )}
 
                 {/* 2. English & Verbal Assessment for this answer */}
+                {answers?.[answer.question_id] && (
+                  <div className="rounded-lg border p-3.5">
+                    <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Original answer</div>
+                    <p className="mt-1 text-sm">{answers[answer.question_id]}</p>
+                  </div>
+                )}
+
                 <div className="rounded-lg border border-purple-200/60 bg-purple-50/20 p-3.5 space-y-2">
                   <div className="flex items-center gap-1.5 text-purple-700 dark:text-purple-400 font-semibold text-sm">
                     <Languages className="h-4 w-4" />
@@ -393,6 +401,23 @@ export function EvaluationReport({ evaluation, isLoading, error, onRetry }: Eval
                 </div>
 
                 {/* Individual Corrections if available */}
+                {(answer.strengths.length > 0 || answer.improvements.length > 0 || answer.retry_recommendations.length > 0) && (
+                  <div className="grid gap-3 md:grid-cols-3 text-sm">
+                    <div>
+                      <h5 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Strengths</h5>
+                      <ul className="mt-1 space-y-1">{answer.strengths.map((item) => <li key={item}>{item}</li>)}</ul>
+                    </div>
+                    <div>
+                      <h5 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Weaknesses</h5>
+                      <ul className="mt-1 space-y-1">{answer.improvements.map((item) => <li key={item}>{item}</li>)}</ul>
+                    </div>
+                    <div>
+                      <h5 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Practice</h5>
+                      <ul className="mt-1 space-y-1">{answer.retry_recommendations.map((item) => <li key={item}>{item}</li>)}</ul>
+                    </div>
+                  </div>
+                )}
+
                 {answer.corrections && answer.corrections.length > 0 && (
                   <div className="space-y-2">
                     <h5 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">

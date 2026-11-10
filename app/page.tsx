@@ -97,7 +97,6 @@ export default function Home() {
       <section className="relative overflow-hidden py-16 md:py-24 px-4 bg-gradient-to-b from-primary/5 via-background to-background">
         <div className="max-w-5xl mx-auto text-center space-y-6">
           <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-4 py-1.5 text-xs md:text-sm font-semibold text-primary backdrop-blur">
-            <Sparkles className="h-4 w-4" />
             AI-Powered Voice Interview & Communication Coach
           </div>
 

@@ -20,6 +20,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent } from "@/components/ui/card";
 import { sessionsAPI } from "@/lib/api/sessions";
+import { healthAPI, ProviderDiagnostics } from "@/lib/api/health";
 import { SessionDetail, SessionEvaluation } from "@/lib/types/session-api";
 import { getAPIErrorMessage } from "@/lib/api-client";
 import { EvaluationReport } from "@/components/practice/evaluation-report";
@@ -52,10 +53,12 @@ export default function SessionReportPage() {
   const [evaluation, setEvaluation] = useState<SessionEvaluation | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [providers, setProviders] = useState<ProviderDiagnostics | null>(null);
 
   const loadData = useCallback(() => {
     const id = params.id;
     if (!id) return;
+    void healthAPI.getProviders().then(setProviders).catch(() => undefined);
     setLoading(true);
     setError(null);
     sessionsAPI
@@ -196,6 +199,14 @@ export default function SessionReportPage() {
                   {session.questions.length} questions &bull; Language:{" "}
                   <span className="capitalize font-medium">{session.explanation_language}</span>
                 </p>
+                {providers && (
+                  <p className="text-xs text-muted-foreground">
+                    Questions and evaluation: {providers.llm.configured ? `${providers.llm.provider} ${providers.llm.model}` : "not configured"}.
+                    {" "}Speech: {providers.tts.configured ? `${providers.tts.provider} ${providers.tts.model} ${providers.tts.voice}` : `${providers.tts.provider} not configured`}.
+                    {" "}Transcription: {providers.stt.configured ? `${providers.stt.provider} ${providers.stt.model}` : `${providers.stt.provider} not configured`}.
+                    {" "}{providers.evon.reason}
+                  </p>
+                )}
               </div>
             </div>
 
@@ -213,6 +224,7 @@ export default function SessionReportPage() {
           isLoading={false}
           error={null}
           onRetry={loadData}
+          answers={Object.fromEntries(session.responses.map((response) => [response.question_id, response.answer_text]))}
         />
       </div>
     </div>

@@ -201,7 +201,7 @@ export class SpeechRecognitionService {
    */
   static getLanguageCode(language: string): string {
     const languageMap: Record<string, string> = {
-      english: "en-US",
+      english: "en-IN",
       hindi: "hi-IN",
       tamil: "ta-IN",
       telugu: "te-IN",

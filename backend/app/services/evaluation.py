@@ -6,6 +6,7 @@ score is recomputed from configured weights, and spoken fluency is never
 derived from a transcript.
 """
 
+import asyncio
 import json
 import logging
 from typing import Any, Optional, Protocol
@@ -69,9 +70,12 @@ def _unavailable(reason: str) -> DimensionScore:
 
 
 def _has_reliable_fluency_data(session: SessionConfigWithDetails) -> bool:
-    """Return true for voice sessions or explicit timing/audio measurement."""
-    if getattr(session, "interaction_mode", None) and getattr(session.interaction_mode, "value", None) == "voice":
-        return True
+    """True only when a response carries an acoustic measurement.
+
+    Voice mode and a transcript are not fluency data. ponytail: duration alone
+    is still not a pronunciation score; set verified_audio_duration_ms only
+    from a real speech metric before this returns true.
+    """
     return any(
         getattr(response, "speech_duration_ms", None) is not None
         or getattr(response, "verified_audio_duration_ms", None) is not None
@@ -508,6 +512,15 @@ class AzureOpenAISessionEvaluator(OpenAISessionEvaluator):
         )
 
 
+def playable_audio(content: bytes) -> bool:
+    """True for WAV, MP3, or OGG payloads Timbre is documented to return."""
+    if len(content) < 16:
+        return False
+    if content.startswith((b"ID3", b"RIFF", b"OggS", b"fLaC")):
+        return True
+    return content[0] == 0xFF and (content[1] & 0xE0) == 0xE0
+
+
 def gnani_language(language: str) -> str:
     """Map practice language labels onto Gnani's BCP-47 codes."""
     value = language.strip().lower().replace("_", "-")
@@ -536,7 +549,9 @@ def gnani_language(language: str) -> str:
 
 
 class GnaniTTS:
-    """Gnani Timbre text-to-speech. Shivani is the default voice."""
+    """Gnani Timbre text-to-speech. Shivani is a documented Timbre v3.0 voice."""
+
+    provider_name = "gnani"
 
     def __init__(
         self,
@@ -546,6 +561,7 @@ class GnaniTTS:
         model: str = "timbre-v3.0",
         voice: str = "Shivani",
         timeout: float = 45.0,
+        retry_delay: float = 0.4,
         transport: Optional[httpx.AsyncBaseTransport] = None,
     ) -> None:
         self.api_key = api_key
@@ -553,6 +569,7 @@ class GnaniTTS:
         self.model = model
         self.voice = voice
         self.timeout = timeout
+        self.retry_delay = retry_delay
         self.transport = transport
 
     async def synthesize(self, text: str, language: str = "en-US") -> bytes:
@@ -574,21 +591,34 @@ class GnaniTTS:
         client_kwargs: dict[str, Any] = {"timeout": self.timeout}
         if self.transport is not None:
             client_kwargs["transport"] = self.transport
-        try:
-            async with httpx.AsyncClient(**client_kwargs) as client:
-                response = await client.post(
-                    f"{self.base_url}/api/v1/tts/inference",
-                    headers={
-                        "X-API-Key-ID": self.api_key,
-                        "Content-Type": "application/json",
-                    },
-                    json=payload,
-                )
-        except httpx.TimeoutException as exc:
-            raise APIError(504, "provider_timeout", "The TTS provider timed out") from exc
-        except httpx.RequestError as exc:
-            raise APIError(503, "provider_unavailable", "The TTS provider is unavailable") from exc
-
+        response: Optional[httpx.Response] = None
+        for attempt in range(2):
+            try:
+                async with httpx.AsyncClient(**client_kwargs) as client:
+                    response = await client.post(
+                        f"{self.base_url}/api/v1/tts/inference",
+                        headers={
+                            "X-API-Key-ID": self.api_key,
+                            "Content-Type": "application/json",
+                        },
+                        json=payload,
+                    )
+            except httpx.TimeoutException as exc:
+                if attempt == 0:
+                    await asyncio.sleep(self.retry_delay)
+                    continue
+                raise APIError(504, "provider_timeout", "The TTS provider timed out") from exc
+            except httpx.RequestError as exc:
+                if attempt == 0:
+                    await asyncio.sleep(self.retry_delay)
+                    continue
+                raise APIError(503, "provider_unavailable", "The TTS provider is unavailable") from exc
+            if response.status_code in {429, 500, 502, 503, 504} and attempt == 0:
+                await asyncio.sleep(self.retry_delay)
+                continue
+            break
+        if response is None:
+            raise APIError(503, "provider_unavailable", "The TTS provider is unavailable")
         if response.status_code == 429:
             raise APIError(429, "provider_rate_limited", "The TTS provider rate limit was reached")
         if response.status_code in {401, 403}:
@@ -597,7 +627,7 @@ class GnaniTTS:
             raise APIError(503, "provider_unavailable", "The TTS provider is unavailable")
         if not response.is_success:
             raise APIError(502, "provider_request_failed", "The TTS provider rejected the request")
-        if not response.content:
+        if not playable_audio(response.content):
             raise APIError(502, "provider_invalid_response", "The TTS provider returned empty audio")
         return response.content
 
@@ -610,6 +640,10 @@ class TTSProvider(Protocol):
 
 class UnconfiguredTTSProvider:
     """TTS provider when no API credentials are configured."""
+
+    provider_name = "unconfigured"
+    model = ""
+    voice = ""
 
     async def synthesize(self, text: str, language: str = "en-US") -> bytes:
         raise APIError(501, "tts_not_configured", "Text-to-speech is not configured")
@@ -649,12 +683,18 @@ class MockTTS:
     Returns an empty string since no actual audio is generated in mock mode.
     """
 
+    provider_name = "mock"
+    model = "mock"
+    voice = ""
+
     async def synthesize(self, text: str, language: str = "en-US") -> bytes:
         raise APIError(501, "tts_not_configured", "Text-to-speech is not configured")
 
 
 class OpenAITTS:
     """OpenAI TTS provider using the official Text-to-Speech API."""
+
+    provider_name = "openai"
 
     def __init__(
         self,

@@ -33,11 +33,14 @@ interface DashboardData {
   grammarScore: number | null;
   vocabularyScore: number | null;
   fluencyScore: number | null;
+  clarityScore: number | null;
   currentStreak: number;
   longestStreak: number;
   recentSessions: SessionHistoryItem[];
   activeSessions: SessionHistoryItem[];
   recommendations: RecommendationItem[];
+  weeklyScore: number | null;
+  previousWeekScore: number | null;
 }
 
 function practiceHref(href: string | null) {
@@ -133,13 +136,29 @@ export default function DashboardPage() {
     setLoading(true);
     setError(null);
     try {
-      const [summary, recentSessions, activeSessions, createdSessions, recommendations] = await Promise.all([
+      const [summary, recentSessions, activeSessions, createdSessions, recommendations, trends] = await Promise.all([
         sessionsAPI.getProgressSummary(),
         sessionsAPI.getSessionHistory({ limit: 5, offset: 0, status: "completed" }),
         sessionsAPI.getSessionHistory({ limit: 3, offset: 0, status: "in_progress" }),
         sessionsAPI.getSessionHistory({ limit: 3, offset: 0, status: "created" }),
         sessionsAPI.getPersonalizedRecommendations().catch(() => [] as RecommendationItem[]),
+        sessionsAPI.getPerformanceTrends().catch(() => []),
       ]);
+      const today = new Date();
+      const weekStart = new Date(today);
+      weekStart.setDate(today.getDate() - 6);
+      const previousStart = new Date(weekStart);
+      previousStart.setDate(weekStart.getDate() - 7);
+      const iso = (value: Date) => {
+        const month = String(value.getMonth() + 1).padStart(2, "0");
+        const day = String(value.getDate()).padStart(2, "0");
+        return `${value.getFullYear()}-${month}-${day}`;
+      };
+      const mean = (from: string, until: string) => {
+        const scores = (Array.isArray(trends) ? trends : []).filter((point) => point.date >= from && point.date < until && point.score != null);
+        if (!scores.length) return null;
+        return scores.reduce((total, point) => total + (point.score || 0), 0) / scores.length;
+      };
       const resumable = [
         ...(Array.isArray(activeSessions) ? activeSessions : []),
         ...(Array.isArray(createdSessions) ? createdSessions : []),
@@ -149,7 +168,10 @@ export default function DashboardPage() {
         averageScore: summary?.average_score ?? null,
         grammarScore: summary?.grammar_score ?? null,
         vocabularyScore: summary?.vocabulary_score ?? null,
+        clarityScore: summary?.clarity_score ?? null,
         fluencyScore: summary?.fluency_score ?? null,
+        weeklyScore: mean(iso(weekStart), iso(new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1))),
+        previousWeekScore: mean(iso(previousStart), iso(weekStart)),
         currentStreak: summary?.current_streak ?? 0,
         longestStreak: summary?.longest_streak ?? 0,
         recentSessions: Array.isArray(recentSessions) ? recentSessions : [],
@@ -313,7 +335,7 @@ export default function DashboardPage() {
 
               <Progress value={averagePercentage} aria-label="Average communication score" className="h-2.5" />
 
-              <div className="grid grid-cols-3 gap-3 pt-2">
+              <div className="grid grid-cols-2 gap-3 pt-2">
                 <div className="p-3 rounded-lg border bg-muted/20 text-center">
                   <span className="text-xs text-muted-foreground block mb-1">Grammar</span>
                   <span className={`text-base font-bold ${scoreClass(data.grammarScore)}`}>
@@ -327,12 +349,28 @@ export default function DashboardPage() {
                   </span>
                 </div>
                 <div className="p-3 rounded-lg border bg-muted/20 text-center">
-                  <span className="text-xs text-muted-foreground block mb-1">Fluency</span>
+                  <span className="text-xs text-muted-foreground block mb-1">Clarity</span>
+                  <span className={`text-base font-bold ${scoreClass(data.clarityScore)}`}>
+                    {data.clarityScore === null ? "—" : `${data.clarityScore.toFixed(1)}`}
+                  </span>
+                </div>
+                <div className="p-3 rounded-lg border bg-muted/20 text-center">
+                  <span className="text-xs text-muted-foreground block mb-1">Spoken fluency</span>
                   <span className={`text-base font-bold ${scoreClass(data.fluencyScore)}`}>
-                    {data.fluencyScore === null ? "—" : `${data.fluencyScore.toFixed(1)}`}
+                    {data.fluencyScore === null ? "Not measured" : `${data.fluencyScore.toFixed(1)}`}
                   </span>
                 </div>
               </div>
+              <p className="text-sm text-muted-foreground">
+                This week: {data.weeklyScore === null ? "no completed sessions" : data.weeklyScore.toFixed(1)}
+                {" · "}
+                Previous week: {data.previousWeekScore === null ? "no completed sessions" : data.previousWeekScore.toFixed(1)}
+                {data.averageScore === null
+                  ? ""
+                  : data.averageScore >= 7
+                    ? " · Interview readiness: ready to practise a live round."
+                    : " · Interview readiness: keep practising before a live round."}
+              </p>
             </CardContent>
           </Card>
 

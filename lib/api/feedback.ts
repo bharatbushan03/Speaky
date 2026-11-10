@@ -22,6 +22,16 @@ export interface TranscriptionResponse {
   text: string;
   confidence: number | null;
   language_detected: string | null;
+  provider: string;
+  model: string | null;
+  truncated?: boolean;
+}
+
+export interface SpeechMeta {
+  transcription_provider: "gnani" | "openai" | "browser" | "typed";
+  transcription_model?: string | null;
+  detected_language?: string | null;
+  audio_duration_ms?: number | null;
 }
 
 export const feedbackAPI = {

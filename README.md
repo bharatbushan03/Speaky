@@ -16,8 +16,9 @@ Supabase Auth + PostgreSQL
 
 - Sign in with email and password, Google, or GitHub. Reset a forgotten password from the sign-in page.
 - Practice HR, technical, and viva sessions. Questions are generated one at a time.
-- Answer by typing or with the browser microphone. Text mode works when speech recognition is unavailable.
-- Review a coaching report, session history, streaks, and score trends after a completed session.
+- Answer by typing or by microphone. Voice answers are recorded in the browser, sent to the API, and transcribed with Gnani Prisma when `STT_PROVIDER=gnani` and `GIANI_API_KEY` are set. You can edit the transcript before it is saved. Browser speech and typing remain available when Prisma is not configured or the recording fails.
+- Hear questions from Gnani Timbre (Shivani on `timbre-v3.0`) when `TTS_PROVIDER=gnani`. The browser voice is used only if that call fails.
+- Review a coaching report, session history, streaks, and score trends after a completed session. Scores come from saved evaluations. Spoken fluency stays empty unless a real audio measurement was stored.
 
 Questions and scoring use a `mock` provider until you set OpenAI or Azure OpenAI. The mock provider does not call an external model.
 
@@ -81,6 +82,7 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/app/db/migrations/002_session
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/app/db/migrations/003_ai_question_generation.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/app/db/migrations/004_answer_evaluation.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/app/db/migrations/005_lock_down_legacy_tables.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/app/db/migrations/006_speech_metadata.sql
 ```
 
 Windows `psql` examples are in `backend/app/db/README.md`. Stop on the first error. Do not re-run a migration that already succeeded.
@@ -127,9 +129,11 @@ Check `https://<api-host>/health` before signing in. Do not put the Supabase ser
 | `mock` | Deterministic questions and scores. No API key. |
 | `openai` | Questions and evaluation through OpenAI. Set `OPENAI_API_KEY` and `OPENAI_MODEL` on the backend only. |
 | `azure_openai` | Same flow through an Azure OpenAI or Microsoft Foundry deployment. Set `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_API_KEY`, and `AZURE_OPENAI_DEPLOYMENT`. |
-| `giani` | Refuses to run. There is no verified public API to call. |
+| `giani` | Refuses to run. Evon has no public chat endpoint. Do not point this value at another model and call it Evon. |
 
-`TTS_PROVIDER=gnani` speaks questions in Gnani's Shivani voice. Set `GIANI_API_KEY` from the Gnani dashboard. Browser speech is the fallback when that call fails.
+`TTS_PROVIDER=gnani` speaks questions with Timbre. `STT_PROVIDER=gnani` transcribes answers with Prisma. Both use `GIANI_API_KEY` on the backend only. The live model names are `timbre-v3.0` (voice `Shivani`) and `prisma-v3.0`, from the Gnani speech docs. `GET /api/v1/health/providers` reports which provider is actually configured. Browser speech is labeled as browser speech.
+
+Details, request shapes, and the Evon limitation are in [GNANI_INTEGRATION.md](GNANI_INTEGRATION.md).
 
 ## Checks
 
@@ -146,7 +150,25 @@ python -m unittest discover -s tests -v
 
 Or, from the repository root, `make test` when `make` is available.
 
-These tests do not call Supabase or a paid model. Before relying on production, sign in as two different users and confirm one cannot open the other's session.
+These tests do not call Supabase or Gnani. Gnani tests use mocked HTTP responses. A live Timbre or Prisma check needs a dashboard key and is described in [GNANI_INTEGRATION.md](GNANI_INTEGRATION.md). Before relying on production, sign in as two different users and confirm one cannot open the other's session.
+
+## Demonstration
+
+[Watch the demo video](demo.mp4)
+
+1. Sign in.
+2. Start an HR interview in voice mode.
+3. The question is spoken by Timbre when the Gnani key is set. The screen names the question model from `/api/v1/health/providers`.
+4. Record an answer and stop. Prisma returns the transcript. Edit it if needed.
+5. Submit. The coaching note comes from `AI_PROVIDER` (Groq, OpenAI, Azure OpenAI, or mock). It is not labeled as Evon.
+6. Finish the session and open the report. It shows the original answer, the corrected answer, mistakes, and practice suggestions. Spoken fluency is omitted when no acoustic measurement exists.
+
+## Known limitations
+
+- Evon v3.3 is published as weights and a closed beta. This app does not call it.
+- Prisma REST accepts WAV, MP3, OGG, FLAC, and M4A up to 30 seconds. The browser converts a recording to 16 kHz WAV before upload. Raw audio is not stored.
+- Spoken fluency is not scored from a transcript.
+- Migration `006_speech_metadata.sql` must be applied before transcription provider, model, detected language, and duration are saved. Answers still save if that migration is missing.
 
 ## When something fails
 

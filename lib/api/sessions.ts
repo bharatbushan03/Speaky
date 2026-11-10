@@ -37,6 +37,7 @@ export interface ProgressSummary {
   average_score: number | null;
   grammar_score: number | null;
   vocabulary_score: number | null;
+  clarity_score: number | null;
   fluency_score: number | null;
   pronunciation_score: number | null;
   current_streak: number;
@@ -73,6 +74,7 @@ export interface TrendPoint {
   score: number | null;
   grammar: number | null;
   vocabulary: number | null;
+  clarity: number | null;
   fluency: number | null;
 }
 
@@ -110,11 +112,17 @@ export const sessionsAPI = {
     get<SessionEvaluation>(`/api/v1/sessions/${encodeURIComponent(id)}/evaluation`),
   evaluateSession: (id: string): Promise<SessionEvaluation> =>
     post<SessionEvaluation>(`/api/v1/sessions/${encodeURIComponent(id)}/evaluate`),
-  postTTS: async (data: { text: string; language: string }): Promise<Blob> => {
+  postTTS: async (data: { text: string; language: string }): Promise<{ audio: Blob; provider: string; model: string; voice: string }> => {
     const response = await apiClient.post<Blob>("/api/v1/feedback/tts", data, {
       responseType: "blob",
     });
-    return response.data;
+    const header = (name: string) => String(response.headers[name] || "");
+    return {
+      audio: response.data,
+      provider: header("x-speech-provider"),
+      model: header("x-speech-model"),
+      voice: header("x-speech-voice"),
+    };
   },
   getProgressSummary: async (): Promise<ProgressSummary> => {
     const data = await get<ProgressSummary>("/api/v1/progress/summary");

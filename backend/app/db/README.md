@@ -4,7 +4,7 @@ SpeakReady AI uses Supabase PostgreSQL. Apply numbered migrations in order from
 the repository root. Migration 002 adds Auth-owned, multi-question sessions;
 migration 003 adds one-at-a-time generated-question persistence and private
 evaluation criteria, migration 004 adds persisted evaluations, and migration 005
-locks down the historical custom-account tables. Legacy rows are preserved.
+locks down the historical custom-account tables. Migration 006 stores who transcribed a voice answer. It does not store audio. Legacy rows are preserved.
 
 ## Apply to a clean Supabase project
 
@@ -25,6 +25,7 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/app/db/migrations/002_session
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/app/db/migrations/003_ai_question_generation.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/app/db/migrations/004_answer_evaluation.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/app/db/migrations/005_lock_down_legacy_tables.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/app/db/migrations/006_speech_metadata.sql
 ```
 
 PowerShell equivalent:
